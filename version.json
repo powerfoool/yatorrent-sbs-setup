@@ -1,0 +1,6 @@
+{
+  "name": "yatorrent-sbs-setup",
+  "version": "5.0.0",
+  "short_description": "Подготовка YaTorrent SBS-worker на macOS arm64: Chromium, Codex, 11 агентов, 4 задания и runtime-проверка.",
+  "description": "Установка последнего стабильного YaTorrent на macOS Apple Silicon для параллельной оценки SERP.\n\nНастраивает приватные Codex CLI, Node, Playwright и Chromium, точные allow-правила браузера и prompt reader, 11 агентов на задание, 4 параллельных задания и таймаут 1800 секунд. Проверяет настоящий запуск Chromium внутри Codex и фактический worker после старта.\n\nПрофиль AIM2 передаётся отдельным приватным файлом владельца. В публичном пакете credentials нет. Готовность локального worker отделена от проверки доставки результатов broker."
+}

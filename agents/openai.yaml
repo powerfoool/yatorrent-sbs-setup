@@ -1,0 +1,4 @@
+interface:
+  display_name: "YaTorrent SBS: настройка macOS"
+  short_description: "Настройка SBS-воркера и Chromium на macOS"
+  default_prompt: "Используй $yatorrent-sbs-setup для настройки YaTorrent, профиля, Chromium и 11 слотов на macOS."
