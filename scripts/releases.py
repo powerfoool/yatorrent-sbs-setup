@@ -1,4 +1,4 @@
-"""Official stable release discovery and reviewed desktop-adapter contract."""
+"""Official stable release discovery and pristine native runtime contract."""
 import hashlib
 import json
 from pathlib import Path
@@ -8,14 +8,14 @@ import struct
 from urllib.request import Request, urlopen
 
 LATEST_API = 'https://api.github.com/repos/RudenkoAD/YaTorrent-releases/releases/latest'
-REVIEWED_VERSION = '0.3.5'
-WORKER_SHA256 = 'bcf174b56f10db6a8afd551d4af45658c321ad694783148287d4bbf378d2bc44'
+REVIEWED_VERSION = '0.3.9'
+WORKER_SHA256 = '050e75587af4fb1da8f419d998f6b8fecde54910273aab8c5f9171e810cb0161'
 MODULE_SHA256 = {
-    'lib/auto-updater.cjs': '1fe50dd6ba6fd98ebb23c1ba86888777eb36e1327b5fecb4b20f35f195d0299f',
-    'main.cjs': '0e989c988fb88de2eb1fea007ba8989339cb1394bcb96ee9031cac78ec6359f8',
-    'lib/desktop-worker.cjs': '61e6cb3266571ca1e034626cfce27b7df294f94bcf8dae40ca4e54bfd9e45648',
-    'lib/profile.cjs': '2151148ed3f01a220f618f480db946eff11b5fef6c6d3da451480ea54bf729fd',
-    'lib/codex.cjs': '6246d22f1a83f6f65c9652b1363f28fc883d6d43df563fd34f851149878b448a',
+    'main.cjs': '0444a3b8be4cf0fc50dedef695cbd502df262f90a1014c3e44bb865793bb7849',
+    'lib/desktop-worker.cjs': '1bbe01d2c2479b4adfcfcaea5f210ee91eb1c4e86b0cfa1791b1e1e9f82af752',
+    'lib/profile.cjs': '9fb951ac419dceab4db18775b7dc5e83a95298ec92df99f553d91f4ea23077bf',
+    'lib/codex.cjs': '59461932912eeb85ed65fe5eec026fc208e9833e322aaddfb71343c3e7aa146e',
+    'lib/executor-runtime.cjs': 'dd11e5a81eaa3844592b42d9f2bf4310bda71aba57e9cee7a5796d3ec81a69f8',
 }
 
 
@@ -54,6 +54,25 @@ def latest(metadata=None):
             'release_id': metadata.get('id'), 'source': LATEST_API}
 
 
+def extract_module(app, name):
+    if name not in MODULE_SHA256:
+        raise ReleaseError('Unreviewed native module requested')
+    with (Path(app) / 'Contents/Resources/app.asar').open('rb') as source:
+        prefix = source.read(16)
+        if len(prefix) != 16:
+            raise ReleaseError('Invalid app.asar header')
+        header_size, json_size = struct.unpack('<I', prefix[4:8])[0], struct.unpack('<I', prefix[12:16])[0]
+        if not 0 < json_size <= header_size <= 16 * 1024 * 1024:
+            raise ReleaseError('Invalid app.asar header size')
+        item = json.loads(source.read(json_size))
+        for component in name.split('/'):
+            item = item['files'][component]
+        if item.get('unpacked') or item.get('link') or not 0 <= item['size'] <= 2 * 1024 * 1024:
+            raise ReleaseError('Unsupported native module layout')
+        source.seek(8 + header_size + int(item['offset']))
+        return source.read(item['size'])
+
+
 def validate_source(app, release):
     app = Path(app)
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
@@ -65,21 +84,9 @@ def validate_source(app, release):
         while block := source.read(1024 * 1024):
             digest.update(block)
     if digest.hexdigest() != WORKER_SHA256:
-            raise ReleaseError('Latest worker binary differs from the reviewed adapter contract; review adapter before installation, no older-version fallback')
-    with (app / 'Contents/Resources/app.asar').open('rb') as source:
-        prefix = source.read(16)
-        if len(prefix) != 16:
-            raise ReleaseError('Invalid app.asar header')
-        header_size, json_size = struct.unpack('<I', prefix[4:8])[0], struct.unpack('<I', prefix[12:16])[0]
-        if not 0 < json_size <= header_size <= 16 * 1024 * 1024:
-            raise ReleaseError('Invalid app.asar header size')
-        header = json.loads(source.read(json_size))
-        for name, expected in MODULE_SHA256.items():
-            item = header
-            for component in name.split('/'):
-                item = item['files'][component]
-            if item.get('unpacked') or item.get('link') or not 0 <= item['size'] <= 2 * 1024 * 1024:
-                raise ReleaseError('Unsupported adapter module layout')
-            source.seek(8 + header_size + int(item['offset']))
-            if hashlib.sha256(source.read(item['size'])).hexdigest() != expected:
-                raise ReleaseError('Latest desktop module differs from the reviewed adapter contract')
+        raise ReleaseError('Native worker differs from reviewed0.3.9; review compatibility before installation, no older-version fallback')
+    for name, expected in MODULE_SHA256.items():
+        if hashlib.sha256(extract_module(app, name)).hexdigest() != expected:
+            raise ReleaseError('Native desktop module differs from reviewed0.3.9')
+    if (app / 'Contents/Resources/worker-runtime/aim2-worker-original').exists():
+        raise ReleaseError('App contains a legacy patched worker; use a pristine official application')

@@ -1,101 +1,67 @@
-# Контракт настройки
+# Нативная настройка r6
 
-## Пути на целевой машине
+## Пути и ownership
 
-По умолчанию root — `~/.local/share/yatorrent-sbs`, app — `~/Applications/YaTorrent.app`. Все пути вычисляются на месте. В ZIP нет абсолютных путей компьютера автора и нет его Codex auth. Имя home также должно позволять абсолютные безопасные entry points; при неподходящем home/root выбери доверенный каталог с безопасным абсолютным путём. Установщик отклоняет неподходящий root до любых изменений, вместо автоматического создания ссылок на старые entry points.
+root `~/.local/share/yatorrent-sbs`, app `~/Applications/YaTorrent.app`, штатные данные Electron `~/Library/Application Support/YaTorrent`. `--user-data` не перемещает приложение: при apply нестандартный каталог отклоняется. Доверенные команды только по ASCII путям без пробелов/метасимволов; файлы и предки не writable группой/другими, принадлежат root/текущему пользователю. root не symlink. Неподходящий root отклоняется до изменений.
 
-Данные Electron остаются в штатном `~/Library/Application Support/YaTorrent`. `--user-data` не перемещает этот каталог: нестандартное значение при `--apply` отклоняется до изменений. Для read-only диагностики verify может получить путь существующей установки; это не настройка каталога запуска приложения.
+Приватные Node в root/node, Codex в root/codex, Playwright в root/browser-runtime, Chromium в root/browsers, scripts в root/lib, wrappers в root/bin. auth_home — вычисленный на месте ~/.codex. runtime-config и install-config содержат публичные пути/настройки, credentials не копируют.
 
-Пути executable Node и двух scripts допускают только ASCII буквы, цифры, `_`, `.`, `-` и `/`; пробелы и shell-метасимволы запрещены. Entry files принадлежат текущему пользователю, являются обычными файлами без symlink и не доступны для записи группе/другим; Node исполняемый. Предки проверяются на владение и режим. Каталог public/shared temp не используется как постоянная доверенная установка. Команды выводятся готовыми строками **без кавычек**, помимо массивов argv для программного запуска.
+## executor-runtime.json
 
-Приватный Node — `root/node/bin/node`, Codex — npm prefix `root/codex`, Playwright — `root/browser-runtime`, Chromium — `root/browsers`, скрипты — `root/lib`, исполняемые оболочки — `root/bin`. Codex auth_home — штатный пользовательский `~/.codex`; отдельное правило — `auth_home/rules/yatorrent-sbs-chromium.rules`.
+YaTorrent0.3.9 поддерживает отдельную постоянную настройку. Приложение и нативный worker не патчатся, worker adapter отсутствует, app.asar и подпись не меняются. Стоковый app этой версии можно переиспользовать после сверки ресурсов и подписи. Известную установку r5 при поручении обновить заменяют полной проверенной официальной копией с backup; неизвестное старое/изменённое приложение сохраняют и предлагают отдельный путь.
 
-`runtime-config.json` рядом с browser launcher:
+В штатных данных приложения файл0600:
 ```json
-{"runtime":"<root>/browser-runtime","browsers_path":"<root>/browsers"}
+{
+  "schema_version":1,
+  "codex":{
+    "mode":"custom_launcher",
+    "binary":"<root>/bin/codex",
+    "timeout_seconds":1800,
+    "required_contract":"sbs-codex-v1"
+  }
+}
 ```
+Здесь нет concurrency или entry_points. concurrency задаёт desktop.settings.max_browsers, по умолчанию4 (1..16); он превращается в worker.concurrency. 11 агентов задаёт Codex launcher:10 дочерних + основной. Нативный worker владеет таймером одного Codex-элемента1800; launcher не добавляет второй общий таймер. Descriptor probe10с и smoke до300с — отдельные проверки установки.
 
-`install-config.json` рядом с launcher’ами содержит только публичные пути и настройки. Credentials в него не копируются. `node_bin`, `real_codex`, `auth_home`, `rule_dir`, `real_worker`, `scout_threads=10`, `worker_timeout_seconds=1800`, `worker_concurrency=4 (настраивается `--worker-concurrency`)`.
+JSON отсутствует → стандартный Codex/180с; неверный JSON → ошибка готовности. Установщик записывает файл при остановленном приложении до первого импорта. После изменения настройки работающему worker нужен штатный apply/restart с drain: старые jobs не прерывать. При rollback восстанавливай JSON на диске вместе с launcher; откат только внутреннего состояния не достаточен для следующего старта.
 
-## Импорт и запуск приложения
+## Descriptor
 
-`install.py --apply` вызывает `startup.py`. Для нового или не подтверждённого профиля он записывает `autoStart=false` и `consume_codex=true`, открывает конкретное приватное приложение с локальным `.aim2`, ждёт атомарного обновления `profile.json` с зашифрованными credentials и совпадения публичных полей, затем штатно закрывает приложение. Квитанция `root/profile-import.json` содержит только SHA-256 исходного файла и зашифрованного файла. Повторный запуск повторно использует подтверждение только при совпадении обоих хэшей и публичных полей. Содержимое credentials не выводится.
-
-Такая фаза импорта необходима: проверенный `main.cjs` выполняет autoStart перед обработкой queuedProfilePath, а `importProfile` не запускает worker и отвергает замену профиля при работающем worker. Включение autoStart перед первым импортом могло бы запустить старый профиль либо оставить новую установку остановленной.
-
-После импорта требуются file-auth и успешный `login status`. При отсутствии авторизации состояние — `awaiting_codex_login`; worker остаётся остановленным. После штатного входа владельца повтори `python3 scripts/startup.py --root ROOT`.
-
-Перед **обычным запуском** сохраняются обе опции `autoStart=true` и `settings.consume_codex=true`, а также `max_browsers=worker_concurrency`, `consume_eliza=false`. Идентификатор worker и прочие настройки сохраняются с backup. Затем выполняется `verify.py --pre-launch` отдельным процессом; проверяются код выхода, `infrastructure_ready=true`, `pre_launch_only=true`, `delivery_ready=false`. До открытия приложения это лишь проверка инфраструктуры. При провале autoStart возвращается в false и приложение не открывается. После неё выполняется `open -a APP` без `.aim2`, затем обязательная проверка действующего worker, описанная ниже. `startup.json` различает запрос открытия и подтверждённую готовность worker; broker end-to-end отдельно не подтверждён. `autoStart` означает запуск worker при открытии YaTorrent; настройка входа в macOS не меняется.
-
-`--plan` не меняет файлы и не запускает приложение. Сборка ZIP также ничего не устанавливает. `--apply` начинает приём broker jobs после инфраструктурной проверки, когда приложение стартует; подтвердить готовность установки можно только после дополнительной проверки этого worker, как предусмотрено поручением на настройку worker. Начатые чужие задания не прерывать; при работающей установке сначала согласовать штатное завершение её работы в рамках поручения.
-
-## Настройки Codex в запуске
-
-```toml
-sandbox_mode = "workspace-write"
-approval_policy = "never" # исходный запрос worker; MDM может изменить
-[sandbox_workspace_write]
-network_access = true
-[agents]
-enabled = true
-max_concurrent_threads_per_session = 10 # + основной агент = 11
+`<root>/bin/codex --sbs-print-config` возвращает ровно9 полей:
+```json
+{
+  "schema_version":1,
+  "contract":"sbs-codex-v1",
+  "launcher_version":"6.0.0",
+  "real_codex":{"binary":"<root>/bin/codex-real","version":"codex-cli 0.162.1"},
+  "config_fingerprint":"<64 hex characters>",
+  "total_agent_slots":11,
+  "sandbox":"workspace-write",
+  "network_access":true,
+  "entry_points":{
+    "browser":"<root>/bin/browser",
+    "foreman_reader":"<root>/bin/foreman-reader",
+    "scout_reader":"<root>/bin/scout-reader"
+  }
+}
 ```
+Это ответ launcher, не настройка пользователя. Все entry_points — отдельные executable wrappers с фиксированными scripts; настоящий CLI wrapper запускает JS через явный приватный Node и не зависит от PATH GUI. Fingerprint учитывает публичную эффективную конфигурацию и файлы зависимостей; auth.json/значения секретов не читаются. YaTorrent проверяет точную схему, ownership/mode/executable, версии, sandbox/network/slots и стабильность fingerprint, но не доказывает успешный browser action. Поэтому smoke обязателен. Агентам по-прежнему доступны exact Node+script commands без кавычек; общий Node/shell не разрешается.
 
-Launcher передаёт параметры `-c` сразу после `exec`, потому что YaTorrent использует `--ignore-user-config`. Для закреплённого Codex 0.162.1 параметры перед подкомандой не дали нужный лимит; правильное положение проверено по фактическим developer-инструкциям: 11 слотов. Он также передаёт `project_doc_max_bytes=0`, `cli_auth_credentials_store="file"` и свой `sqlite_home`; `CODEX_HOME`/SQLite состояния изолированы в каталоге задания. Правила связываются с существующим пользовательским каталогом, включая отдельные allow для браузера и prompt reader. `--ephemeral` удаляется. Параметры модели и выходная схема YaTorrent сохраняются.
+## Импорт, авторизация, запуск
 
-При file-auth launcher временно связывает `auth.json`, не читая/не копируя его содержимое. Ссылка удаляется после задания. При отсутствии file-auth нужен штатный вход; keyring fallback через другую директорию не считается проверенным. Для схемы с подпиской используй ChatGPT login, не подменяй подписку API key без запроса пользователя.
+startup при остановленном worker проверяет исходный внешний профиль0600/hash, сохраняет JSON, при необходимости импортирует AIM2 с autoStart=false и resumeAfterUpdate=false; первый импорт происходит после проверки автозапуска в YaTorrent. Дождаться нового зашифрованного profile.json, сверить публичные поля и хэши, штатно закрыть приложение. Credentials импортируются через safeStorage.
 
-Запрос worker остаётся `never`. Фактическая политика извлекается из rollout и указывается в отчёте; расхождение не исправляй подменой config. Более строгое `forbidden`/`prompt` не отменяется новой записью allow. Не задавай неподдерживаемое `untrusted` и не считай передачу `on-request` доказательством изменения фактической политики.
+autoUpdate сохраняет выбор владельца. Перед обычным открытием сохраняются autoStart=true, consume_codex=true, consume_eliza=false, max_browsers=concurrency. Это запуск worker при открытии YaTorrent, не login item macOS. file-auth Codex выполняет владелец на этой машине. Prelaunch verify запускает реальный Codex/Chromium и даёт только «подготовлен». После open обязателен readback фактического worker. При сбое ненулевой exit/«не готов», будущий autoStart отключается по возможности; чужие уже начатые jobs не убиваются.
 
-## Почему нужен worker adapter
+## Фактический worker
 
-В официальном YaTorrent 0.3.5 проверены `main.cjs`, `lib/profile.cjs`, `lib/desktop-worker.cjs`, `lib/codex.cjs`, `lib/auto-updater.cjs` и константы frozen `worker.executors.prompt_executor`:
+Источник — нативные service.json, worker-config.json, worker-state/worker/metrics.json и живой процесс. Старый sbs-worker-launch.json не используется. Сверяются PID и время старта процесса из ps lstart и codex_runtime (service.json содержит только pid/port), executable/хэш штатного worker, фактические binary/mode/timeout1800/concurrency и enabled. codex_runtime должен быть свежим ≤15с, ready=true, accepting=true, error=null, restart_required=false. Его launcher_identity, contract/version, real_codex, config_fingerprint и config_hash совпадают с текущим descriptor и каноническим hash JSON. Требуются два продвинувшихся heartbeat/uptime того же процесса; при startup он должен быть новее запроса запуска.
 
-- Desktop при каждом старте пересоздаёт worker-config.
-- Его UI не предоставляет произвольный binary и timeout Codex.
-- Runtime запускает `codex exec` с `workspace-write`, `--ignore-user-config`, `--ephemeral`, never и network_access=true.
-- timeout_seconds по умолчанию180, поддерживаемый диапазон1..3600.
+Готовность не выводится из одного файла, launch request или healthy API. verify не читает bearer token приложения и не делает broker claims. Полная verify без skip требует реальный Codex/Chromium и фактический worker. [Smoke](runtime.md). Под нагрузкой44агента/40браузеров могут потребовать уменьшения jobs; настроенный лимит4 сам по себе не подтверждает четыре активных задания.
 
-Чтобы не править конфиг с гонкой, приватная установка сохраняет оригинальный `worker-runtime/aim2-worker` и помещает на его место фиксированную оболочку. Она применяет конфигурацию и заменяет свой процесс оригинальным worker через `execve`, сохраняя PID для Desktop readiness. Аргументы, worker ID, очередь, профиль и env сохраняются; дополнительный worker не запускается. Оболочка `Contents/Resources/codex/codex` обеспечивает обнаружение приватного Codex приложением, включая проверку авторизации.
+## Обновления и источники
 
-Конфиг Codex получает binary `root/bin/codex`, timeout1800, max_output_bytes8MiB. Concurrency по умолчанию4; `--worker-concurrency` задаёт 1..16. Worker adapter использует сохранённое значение вместо старого жёсткого лимита1; desktop.max_browsers и метрики должны совпадать с ним. Оригинальный worker хранится рядом; его SHA-256 фиксируется. Оболочка и приложение проверяются после обновления. Пакет не патчит `app.asar`, не меняет глобальный Codex config и не отключает защиты macOS.
+Latest stable разрешается через официальный GitHub API; SHA256 из release metadata обязателен. Нативный worker и проверенные ASAR модули сверяются с контрактом0.3.9. Новое несовместимое приложение не устанавливается вслепую; Codex pin/integrity отдельно не меняются. Автообновление может поменять контракт: повтори приёмку фактического runtime, не полагайся на прежний verification.json. Не переподписывать bundle, не отключать Gatekeeper/quarantine.
 
-## Проверка готовности
-
-Владелец подтвердил наблюдение четырёх разных заданий, выполнявшихся одновременно, в предыдущем запуске. Это подтверждение эксплуатационного сетапа, а не новый нагрузочный тест r5. Проверка установки сверяет лимит4, но не отправляет задания для доказательства параллелизма. См. [доставку через broker](broker.md).
-
-Разделяй стадии: скачано/проверены хэши; установлены binaries; профиль реально импортирован; CLI авторизован; Chromium реально запущен; точный allow совпадает; фактический запуск Codex использует нужные настройки; worker принимает назначение; результат получен.
-
-`verify.py` не стартует приём задач. Без skip обязателен [runtime smoke](runtime.md) через тот же Codex launcher и worker flags. Только `готов`/нулевой exit полной проверки без `--pre-launch` подтверждает инфраструктуру и фактический worker. Нулевой exit `--pre-launch` даёт лишь «подготовлен» и `delivery_ready=false`. Это не доказательство broker end-to-end. Наличие процесса и service.json недостаточно: проверка связывает launch receipt, действующий executable, config SHA-256 и продвигающиеся метрики того же PID. Она не читает bearer token приложения и не делает broker/API mutations. При новом запуске нужен `auth_home/auth.json`: одного login status через Keychain недостаточно для изолированного launcher.
-
-Настроенный лимит ещё не доказывает одновременную работу всех10 разведчиков. Для нагрузочного приёмочного теста бригадир должен сначала создать десять агентов, дождаться их readiness и только затем отпустить их на URL. Иначе первый может завершиться до создания десятого даже при11 доступных слотах.
-
-Реальный предыдущий SBS-тест занимал12,8 минуты с8 разведчиками и3 одновременно. Это ориентир тайм-аута, не SLA. Под нагрузкой следи за памятью, CPU, лимитами подписки и максимальным числом jobs; десять browser-контекстов в каждом из нескольких jobs могут перегрузить одну машину.
-
-## Доказательство фактического worker
-
-Непосредственно перед `execve` worker launcher записывает `worker-state/sbs-worker-launch.json` (0600): schema, PID, время, пути и SHA-256 original worker и worker-config. PID сохраняется при exec. Профиль, config values, env и tokens в receipt не копируются. Receipt сам по себе не доказывает запуск.
-
-`worker_check.py` требует совпадения PID в receipt, service.json и metrics.json, живого процесса с executable установленного original worker и подходящим временем старта (защита от старого receipt/повторного PID). Проверяются хэш реально запущенного бинарника и конфигурации, `codex.binary` установленного launcher, `codex_home`, `timeout_seconds=1800`, max_output_bytes=8MiB, enabled, concurrency=worker_concurrency, work_dir. Пути к файлам сравниваются по их идентичности, учитывая регистр на case-insensitive macOS.
-
-Метрики читаются из ожидаемого `worker-state/worker/metrics.json`: тот же PID, heartbeat не старше 20 секунд, uptime соответствует процессу, consume_codex=true, consume_eliza=false, max_browsers=worker_concurrency. Требуется два наблюдения с продвижением heartbeat и uptime при неизменных PID/receipt/config. При startup receipt обязан быть новее запроса обычного открытия приложения. Ожидание ограничено 45 секундами.
-
-До запуска полная инфраструктурная проверка выполняется с `--pre-launch`; после запуска `startup.py` добавляет обязательное доказательство worker и только тогда сохраняет `verification.json` со статусом «готов». Обычная `verify.py` без skip требует оба доказательства. Ошибочный timeout/CLI, недоступный ps, отсутствие receipt/metrics, остановленный worker или неправильная конфигурация не дают статус «готов» даже при успешном отдельном Codex smoke. Нужен обычный доступ установки к сведениям о её процессах; новая общая allow-запись для shell/ps/Node разведчикам не добавляется.
-
-При провале после открытия возвращается `StartupFailure`, ненулевой код, «не готов» и правдивое app_launch_requested=true. Будущий autoStart отключается на диске, если это удалось; при работающем приложении его внутреннее состояние может отличаться. Скрипт не прекращает чужие/уже начатые jobs. Если worker проверен, но итоговый verification.json/startup.json не удалось сохранить, установка также возвращает ненулевой код и «не готов», сохраняя правдивые worker_ready=true и app_launch_requested=true в выводе. Этот уже проверенный worker автоматически не убивается. Сбой публикации результата в broker не диагностируется этим тестом. 1800 — лимит одного Codex-элемента, а не всего батча или доставки результатов.
-
-## Версии и источники
-
-Установщик разрешает официальный `releases/latest` при каждом `--plan`/`--apply`, выбирает macOS arm64 DMG и проверяет SHA-256 из метаданных релиза. Последний релиз, проверенный при сборке, — YaTorrent0.3.5. Перед копированием приложения сверяет Info.plist, оригинальный worker и пять модулей ASAR с проверенным контрактом. Более новый релиз с неизменным контрактом допустим; при изменении контракта установка останавливается для проверки адаптера, без fallback на старую версию. Недоступность API и отсутствие SHA-256 также останавливают установку. Node24.21.0 LTS, Codex0.162.1, Playwright1.64.0, Chromium156.0.8078.4 остаются закреплены. Chromium устанавливается Playwright соответствующей версии, без ручного имени executable. Runtime сверяет и метаданные Playwright, и версию реально запущенного браузера с явным pin.
-
-- [Официальный YaTorrent0.3.5](https://github.com/RudenkoAD/YaTorrent-releases/releases/tag/yatorrent-v0.3.5).
-- [Node.js24.21.0 и SHA256SUMS](https://nodejs.org/dist/v24.21.0/SHASUMS256.txt).
-- [Playwright: соответствие версии библиотеке и установка полного Chromium](https://playwright.dev/docs/browsers).
-- [Codex: правила команд](https://learn.chatgpt.com/docs/agent-configuration/rules).
-- [Codex: лимит субагентов](https://learn.chatgpt.com/docs/agent-configuration/subagents#global-settings).
-- [Codex exec: ephemeral и ignore-user-config](https://learn.chatgpt.com/docs/developer-commands#codex-exec).
-- [CODEX_HOME и SQLite](https://learn.chatgpt.com/docs/config-file/environment-variables#core-locations).
-
-Установка в чистую macOS и broker end-to-end не выполнялись при сборке ZIP. Результаты реальных проверок ресурсов и fixture-интеграций лежат рядом с архивом в отчёте сборки, а не подменяют проверку на целевой машине.
-
-В 0.3.5 импорт по-прежнему выполняется после проверки автозапуска, но `resumeAfterUpdate=true` также может запустить worker при autoStart=false. Поэтому подготовка/отказ очищает resumeAfterUpdate и выключает autoUpdate: автоматическая замена bundle стирает приватный адаптер. Обновление через установщик заново разрешает latest и проверяет контракт. При проверке релиза просмотрены изменения main/desktop-worker; profile/codex modules неизменны, нормализованные code objects prompt_executor совпадают с 0.3.4 (flags, timeout, SIGKILL, модель/schema/protocol).
+[YaTorrent0.3.9](https://github.com/RudenkoAD/YaTorrent-releases/releases/tag/yatorrent-v0.3.9), [Node24.21.0](https://nodejs.org/dist/v24.21.0/SHASUMS256.txt), [Playwright Chromium](https://playwright.dev/docs/browsers). Контракт взят из официальных ресурсов релиза; сборка ZIP не заменяет полную verify на чистой целевой macOS и broker end-to-end.

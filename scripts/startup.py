@@ -12,6 +12,7 @@ import uuid
 import install
 import verify
 import worker_check
+import runtime_contract
 
 
 def profile_matches(source, imported):
@@ -60,10 +61,9 @@ def preferences(user_data, root, auto_start):
     # requested worker-on-app-start and Codex-intake choices.
     current.setdefault('workerId', str(uuid.uuid4()))
     current['autoStart'] = auto_start
-    # New 0.3.5 resume marker can start a worker even with autoStart=false;
-    # automatic replacement would discard the reviewed private adapter.
+    # A stale update-resume marker must not start the old profile during import.
     current['resumeAfterUpdate'] = False
-    current['autoUpdate'] = False
+    current.setdefault('autoUpdate', False)
     current['settings'] = dict(settings, consume_codex=True, consume_eliza=False, max_browsers=concurrency)
     install.write_json(file, current, root)
     readback = install.read_json(file)
@@ -100,6 +100,7 @@ def start(root, wait_import=60):
         raise install.SetupError('Source profile permissions must be 0600')
     if install.digest(source) != marker.get('profile_sha256'):
         raise install.SetupError('Installed profile differs from the supplied external profile')
+    runtime_contract.configure(root, user_data)
     imported = user_data / 'profile.json'
     bootstrap_used = not confirmed_import(source, imported, root)
     if bootstrap_used:

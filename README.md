@@ -1,9 +1,9 @@
-# YaTorrent SBS setup — r5
+# YaTorrent SBS setup — r6
 
-Публичный навык подготовки YaTorrent worker на macOS Apple Silicon: Codex CLI, Playwright/Chromium, узкие allow-правила, 11 агентов на задание, 4 параллельных задания, таймаут 1800 секунд и обязательная runtime-проверка.
+Публичный навык для macOS Apple Silicon: нативный YaTorrent0.3.9 с executor-runtime.json/sbs-codex-v1, Codex/Chromium, 11агентов на пару, 4параллельных задания и1800с. Приложение не патчится и не переподписывается.
 
-[Инструкция навыка](SKILL.md) · [Внешний профиль](references/profile.md) · [Границы проверки broker](references/broker.md)
+Два режима: worker и координатор. Координатор получает пары, согласует удобный формат итогов, отправляет по1 SBS/task и сохраняет полученные оценки в Google Sheets через portable gwsx work. По умолчанию его машина также выполняет задачи. [SKILL.md](SKILL.md), [координатор](references/coordinator.md), [внешний профиль](references/profile.md).
 
-Скачайте ZIP и файл SHA-256 из [GitHub Releases](https://github.com/powerfoool/yatorrent-sbs-setup/releases), проверьте контрольную сумму и распакуйте. Профиль AIM2 владелец передаёт отдельным приватным файлом. В репозитории и публичном ZIP credentials нет. Установку запускает только поручение пользователя на настройку целевой машины.
+Credentials не включены. AIM2 и OAuth-клиент передаются отдельными приватными файлами, авторизация происходит на целевой машине. Установка запускается только по поручению настроить эту машину. Полная verify без skip и реальный Codex/Chromium обязательны; тесты сборки не заменяют clean-Mac установку, broker end-to-end или проверку записи в выбранную таблицу.
 
-Для обновления публичного архива используйте `scripts/build-release.py --output /path/outside-skill/release.zip`: явный список файлов, запрет приватных профилей и проверка MANIFEST. Приёмку установленного worker выполняет полная `scripts/verify.py` без skip. Тесты сборки не заменяют эту проверку на целевом Mac и end-to-end доставку через broker.
+Сборка: scripts/build-release.py --output /path/outside-skill/release.zip; явная инвентаризация, MANIFEST и SHA256, запрет secrets/авторских путей. Для релиза требуется независимое ревью и закрытие всех blockers/major перед публикацией.

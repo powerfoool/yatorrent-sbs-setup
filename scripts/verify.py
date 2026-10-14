@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 import install
 import runtime_smoke
 import worker_check
+import runtime_contract
+import releases
 
 
 def normalized_public(file, stored=False):
@@ -26,7 +28,7 @@ def normalized_public(file, stored=False):
             raise install.SetupError("Imported profile contains plaintext credential fields")
     else:
         value.pop("credentials", None)
-    # Normalize the reviewed public transformations of YaTorrent 0.3.5.
+    # Normalize the reviewed public transformations of YaTorrent 0.3.9.
     if isinstance(value.get("broker"), dict):
         value["broker"] = dict(value["broker"])
         value["broker"]["url"] = value["broker"]["url"].rstrip("/")
@@ -107,15 +109,25 @@ def verify(args):
             raise install.SetupError("Installed package pin mismatch")
     original = Path(setup["real_worker"])
     if install.digest(original) != setup.get("real_worker_sha256") or setup["real_worker_sha256"] != marker.get("real_worker_sha256"):
-        raise install.SetupError("Preserved worker digest mismatch")
+        raise install.SetupError("Pristine native worker digest mismatch")
     concurrency = setup.get("worker_concurrency")
     if setup.get("scout_threads") != 10 or setup.get("worker_timeout_seconds") != 1800 or type(concurrency) is not int or not 1 <= concurrency <= 16:
         raise install.SetupError("Agent/worker limits mismatch")
-    expected_worker = install.shell_wrapper(node, root / "lib/worker-launcher.mjs")
-    if (app / "Contents/Resources/worker-runtime/aim2-worker").read_text() != expected_worker:
-        raise install.SetupError("Desktop adapter wrapper mismatch")
-    if (root / "bin/codex").read_text() != install.shell_wrapper(node, root / "lib/codex-launcher.mjs") or (app / "Contents/Resources/codex/codex").read_text() != install.shell_wrapper(node, root / "lib/codex-launcher.mjs"):
+    if marker.get("install_mode") != "native" or original != app / "Contents/Resources/worker-runtime/aim2-worker":
+        raise install.SetupError("Pristine native worker installation required; legacy adapter is not accepted")
+    try:
+        releases.validate_source(app, marker["release"])
+    except releases.ReleaseError as error:
+        raise install.SetupError(str(error)) from None
+    if (root / "bin/codex").read_text() != install.shell_wrapper(node, root / "lib/codex-launcher.mjs"):
         raise install.SetupError("Private Codex wrapper mismatch")
+    if real_codex != root / "bin/codex-real" or real_codex.read_text() != install.shell_wrapper(node, root / "codex/node_modules/@openai/codex/bin/codex.js"):
+        raise install.SetupError("Fixed real Codex wrapper mismatch")
+    for file, role in [(root / "bin/browser", None), (root / "bin/foreman-reader", "foreman"), (root / "bin/scout-reader", "scout")]:
+        script = browser if role is None else reader
+        install.trusted_path(file, root, executable=True)
+        if file.read_text() != install.shell_wrapper(node, script, role):
+            raise install.SetupError("Fixed descriptor entry point mismatch")
     for name in ("codex-launcher.mjs", "sbs-auth-guard.mjs"):
         installed = install.trusted_path(root / "lib" / name, root)
         if installed.read_bytes() != (install.ASSETS / name).read_bytes():
@@ -159,8 +171,9 @@ def verify(args):
     settings = preferences.get("settings", {})
     if preferences.get("autoStart") is not True or settings.get("max_browsers") != concurrency or settings.get("consume_codex") is not True:
         raise install.SetupError("Desktop defaults mismatch")
-    if preferences.get("autoUpdate") is not False or preferences.get("resumeAfterUpdate") is not False:
-        raise install.SetupError("Automatic app replacement or resume-after-update bypasses reviewed startup")
+    if preferences.get("resumeAfterUpdate") is not False:
+        raise install.SetupError("Stale resume-after-update marker bypasses reviewed startup")
+    checks["native_contract"] = runtime_contract.inspect(root, app, user_data)
     checks["desktop_startup"] = {"autoStart": True, "consume_codex": True, "max_browsers": concurrency}
     checks.update(readiness_scope="local_worker_only", broker_end_to_end_verified=False, parallel_jobs_verified=False)
     if not args.skip_chromium:

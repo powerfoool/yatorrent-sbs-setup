@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {fileURLToPath} from 'node:url';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
+import crypto from 'node:crypto';
 
 const assetDir = path.dirname(fileURLToPath(import.meta.url));
 const valueFlags = new Set(['--config', '-c', '--sandbox', '-s', '--cd', '-C', '--model', '-m', '--output-schema', '--output-last-message', '-o', '--image', '-i', '--profile', '-p', '--color', '--local-provider', '--add-dir', '--thread-source', '--cyber-access-program', '--enable', '--disable', '--ask-for-approval', '-a']);
@@ -94,7 +95,27 @@ export function loadInstallConfig(configPath = path.join(assetDir, 'install-conf
 }
 
 export function printConfig(config) {
-  return {...config, auth_file_present: fs.existsSync(path.join(config.auth_home, 'auth.json')), sandbox: 'workspace-write', agents_enabled: true, total_agent_slots: 11, project_doc_max_bytes: 0, state: 'unique directory in worker workspace', auth_contents_read: false};
+  const root = path.dirname(assetDir);
+  const entryPoints = {browser: path.join(root, 'bin/browser'), foreman_reader: path.join(root, 'bin/foreman-reader'), scout_reader: path.join(root, 'bin/scout-reader')};
+  const files = [config.node_bin, config.real_codex, path.join(assetDir, 'codex-launcher.mjs'),
+    path.join(assetDir, 'sbs-auth-guard.mjs'), path.join(assetDir, 'sbs-chromium.mjs'), path.join(assetDir, 'sbs-read-prompt.mjs'),
+    path.join(assetDir, 'runtime-config.json'), path.join(assetDir, 'install-config.json'), path.join(root, 'bin/codex'),
+    path.join(root, 'codex/node_modules/@openai/codex/bin/codex.js'),
+    ...Object.values(entryPoints), path.join(config.rule_dir, 'yatorrent-sbs-chromium.rules')];
+  const hashes = files.map(file => {
+    const real = fs.realpathSync(file), st = fs.statSync(real);
+    if (!st.isFile() || (st.mode & 0o022) || (st.uid !== 0 && st.uid !== process.getuid())) throw new Error('Descriptor dependency is unavailable or untrusted');
+    return [file, crypto.createHash('sha256').update(fs.readFileSync(real)).digest('hex')];
+  });
+  for (const file of Object.values(entryPoints)) fs.accessSync(file, fs.constants.X_OK);
+  const env = {PATH: path.dirname(config.node_bin), HOME: process.env.HOME || os.homedir()};
+  const result = spawnSync(config.real_codex, ['--version'], {env, encoding: 'utf8', timeout: 5000, maxBuffer: 16384});
+  const version = result.status === 0 && /^codex-cli (0\.162\.1)\s*$/.exec(result.stdout || '');
+  if (!version) throw new Error('Actual Codex version differs from the pinned CLI');
+  return {schema_version: 1, contract: 'sbs-codex-v1', launcher_version: '6.0.0',
+    real_codex: {binary: fs.realpathSync(config.real_codex), version: 'codex-cli ' + version[1]},
+    config_fingerprint: crypto.createHash('sha256').update(JSON.stringify(hashes)).digest('hex'),
+    total_agent_slots: 11, sandbox: 'workspace-write', network_access: true, entry_points: entryPoints};
 }
 
 export async function runLauncher(input, config, {cwd = process.cwd(), env = process.env} = {}) {

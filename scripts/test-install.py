@@ -52,7 +52,7 @@ class InstallerTests(unittest.TestCase):
     def test_default_root_has_no_space_and_pins_are_unchanged(self):
         self.assertEqual(install.arguments([]).root, Path.home() / ".local/share/yatorrent-sbs")
         self.assertEqual((install.VERSION, install.NODE_VERSION, install.CODEX_VERSION, install.PLAYWRIGHT_VERSION),
-                         ("0.3.5", "24.21.0", "0.162.1", "1.64.0"))
+                         ("0.3.9", "24.21.0", "0.162.1", "1.64.0"))
 
     def test_unsafe_custom_roots_stop_before_mutation_or_network(self):
         for suffix in ("space root", "quote'root", 'quote"root', "semi;root", "dollar$root", "newline\nroot", "unicode-ю", "backtick`root"):
@@ -268,120 +268,5 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(verify.authentication_ready(checks))
 
 
-@unittest.skipUnless(shutil.which("node"), "Node required for adapter fixtures")
-class WorkerAdapterTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="sbs-worker-fixture-")
-        self.base = Path(self.temporary.name).resolve()
-        self.launcher = self.base / "worker-launcher.mjs"
-        shutil.copyfile(install.ASSETS / "worker-launcher.mjs", self.launcher)
-        self.original = self.base / "aim2-worker-original"
-        self.original.write_text("#!" + sys.executable + "\n" + '''import json, os, sys, time
-from pathlib import Path
-args = sys.argv[1:]
-result = {"pid": os.getpid(), "args": args, "env_preserved": os.environ.get("SBS_FIXTURE_ENV") == "kept"}
-if args and args[0] == "desktop" and "--help" not in args:
-    file = Path(args[args.index("--config") + 1])
-    result["observed_config"] = json.loads(file.read_text())
-Path(os.environ["SBS_FIXTURE_CAPTURE"]).write_text(json.dumps(result))
-if os.environ.get("SBS_FIXTURE_SLEEP") == "yes": time.sleep(20)
-sys.exit(int(os.environ.get("SBS_FIXTURE_EXIT", "0")))
-''')
-        self.original.chmod(0o755)
-        self.setup = {"real_worker": str(self.original), "real_worker_sha256": install.digest(self.original),
-                      "auth_home": str(self.base / "auth"), "codex_wrapper": str(self.base / "bin/codex"),
-                      "worker_timeout_seconds": 1800, "worker_concurrency": 4}
-        (self.base / "install-config.json").write_text(json.dumps(self.setup))
-        self.config = {"worker_id": "fixture-worker-identity", "work_dir": str(self.base / "workspace"),
-                       "local_queue": {"path": str(self.base / "settings.sqlite")}, "concurrency": 4,
-                       "broker": {"url": "https://example.invalid", "token_env": "FIXTURE_TOKEN"}, "task_types": ["codex", "doc"],
-                       "executors": {"codex": {"enabled": True, "model": "fixture-model", "reasoning_effort": "high", "binary": "before", "codex_home": "before"},
-                                     "eliza": {"enabled": False, "model": "other-fixture"}}}
-        self.config_file = self.base / "worker-config.json"
-        self.config_file.write_text(json.dumps(self.config))
-        self.config_file.chmod(0o600)
-        self.capture = self.base / "capture.json"
-        self.env = dict(os.environ, SBS_FIXTURE_CAPTURE=str(self.capture), SBS_FIXTURE_ENV="kept")
-
-    def tearDown(self):
-        self.temporary.cleanup()
-
-    def launch(self, args=None, **environment):
-        args = args if args is not None else ["desktop", "--config", str(self.config_file), "--state-dir", str(self.base / "state"), "--port", "0"]
-        return subprocess.Popen([shutil.which("node"), self.launcher, *args], env=dict(self.env, **environment), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    def test_atomic_patch_preserves_profile_identity_environment_and_pid(self):
-        before = self.config_file.stat().st_ino
-        proc = self.launch()
-        output, error = proc.communicate(timeout=10)
-        self.assertEqual(proc.returncode, 0, error.decode())
-        self.assertEqual(output, b"")
-        observed = json.loads(self.capture.read_text())
-        self.assertEqual(observed["pid"], proc.pid)
-        self.assertTrue(observed["env_preserved"])
-        patched = copy.deepcopy(self.config)
-        patched["concurrency"] = 4
-        patched["executors"]["codex"].update(binary=self.setup["codex_wrapper"], codex_home=self.setup["auth_home"],
-                                               timeout_seconds=1800, max_output_bytes=8 * 1024 * 1024)
-        self.assertEqual(observed["observed_config"], patched)
-        receipt = install.read_json(self.base / "state/sbs-worker-launch.json")
-        self.assertEqual(receipt["pid"], proc.pid)
-        self.assertEqual(receipt["config_sha256"], install.digest(self.config_file))
-        self.assertEqual(receipt["real_worker_sha256"], self.setup["real_worker_sha256"])
-        self.assertEqual(stat.S_IMODE((self.base / "state/sbs-worker-launch.json").stat().st_mode), 0o600)
-        self.assertNotIn("FIXTURE_TOKEN", json.dumps(receipt))
-        self.assertNotEqual(self.config_file.stat().st_ino, before)
-        self.assertEqual(stat.S_IMODE(self.config_file.stat().st_mode), 0o600)
-        self.assertEqual(list(self.base.glob("*.tmp")), [])
-
-    def test_non_desktop_and_help_passthrough_keep_original_exit(self):
-        before = self.config_file.read_bytes()
-        for args in [["--help"], ["desktop", "--help"], ["unknown", "value"]]:
-            proc = self.launch(args, SBS_FIXTURE_EXIT="7")
-            proc.communicate(timeout=10)
-            self.assertEqual(proc.returncode, 7)
-            self.assertEqual(json.loads(self.capture.read_text())["args"], args)
-            self.assertEqual(self.config_file.read_bytes(), before)
-
-    def test_modified_original_refused_before_config_patch(self):
-        before = self.config_file.read_bytes()
-        with self.original.open("a") as output:
-            output.write("\n# changed fixture\n")
-        proc = self.launch()
-        output, error = proc.communicate(timeout=10)
-        self.assertEqual(proc.returncode, 1)
-        self.assertEqual(output, b"")
-        self.assertIn(b"refused startup", error)
-        self.assertFalse(self.capture.exists())
-        self.assertEqual(self.config_file.read_bytes(), before)
-
-    def test_unsafe_config_and_unexpected_desktop_args_refused(self):
-        self.config_file.unlink()
-        self.config_file.symlink_to(self.base / "absent")
-        proc = self.launch()
-        proc.communicate(timeout=10)
-        self.assertEqual(proc.returncode, 1)
-        self.assertFalse(self.capture.exists())
-        proc = self.launch(["desktop", "--unexpected", "fixture"])
-        proc.communicate(timeout=10)
-        self.assertEqual(proc.returncode, 1)
-
-    def test_signal_targets_original_with_same_pid(self):
-        proc = self.launch(["--help"], SBS_FIXTURE_SLEEP="yes")
-        try:
-            deadline = time.monotonic() + 10
-            while not self.capture.exists() and time.monotonic() < deadline:
-                time.sleep(0.02)
-            self.assertTrue(self.capture.exists())
-            self.assertEqual(json.loads(self.capture.read_text())["pid"], proc.pid)
-            proc.send_signal(signal.SIGTERM)
-            proc.communicate(timeout=5)
-            self.assertEqual(proc.returncode, -signal.SIGTERM)
-        finally:
-            if proc.poll() is None:
-                proc.kill()
-                proc.communicate()
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main(verbosity=2)

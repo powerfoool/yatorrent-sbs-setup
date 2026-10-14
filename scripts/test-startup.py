@@ -127,14 +127,14 @@ class StartupTests(unittest.TestCase):
         self.assertTrue(self.launch()['import_bootstrap_used'])
         self.assertFalse(self.calls[0][1]['autoStart'])
 
-    def test_update_resume_cannot_bypass_import_or_replace_adapter(self):
+    def test_update_resume_cannot_bypass_import_and_auto_update_is_preserved(self):
         prefs = install.read_json(self.user / 'desktop.json')
         prefs.update(autoUpdate=True, resumeAfterUpdate=True)
         install.write_json(self.user / 'desktop.json', prefs, self.root)
         self.launch()
         self.assertFalse(self.calls[0][1]['autoStart'])
         for _, observed in self.calls:
-            self.assertFalse(observed['autoUpdate'])
+            self.assertTrue(observed['autoUpdate'])
             self.assertFalse(observed['resumeAfterUpdate'])
 
     def test_matching_profile_skips_import_bootstrap(self):

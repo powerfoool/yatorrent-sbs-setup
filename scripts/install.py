@@ -127,6 +127,11 @@ def write_owned(file, content, root, mode=0o600):
             dest.flush()
             os.fsync(dest.fileno())
         os.replace(temporary, file)
+        directory_fd = os.open(file.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -204,8 +209,9 @@ def extract_node(archive, dest):
                 os.link(dest.joinpath(*link.parts), target)
 
 
-def shell_wrapper(node, script):
-    return "#!/bin/sh\nexec " + shlex.quote(str(node)) + " " + shlex.quote(str(script)) + ' "$@"\n'
+def shell_wrapper(node, script, role=None):
+    fixed = " " + shlex.quote(role) if role is not None else ""
+    return "#!/bin/sh\nexec " + shlex.quote(str(node)) + " " + shlex.quote(str(script)) + fixed + ' "$@"\n'
 
 
 def rule_text(node, browser, reader=None):
@@ -248,9 +254,9 @@ def validate_existing_app(app, marker):
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     saved = read_json(marker)
     if info.get("CFBundleShortVersionString") != saved.get("app_version"):
-        raise SetupError("Existing app version differs; adapter must be re-checked after updates")
+        raise SetupError("Existing app version differs; native compatibility must be re-checked after updates")
     if saved.get("app") != str(app) or saved.get("bundle_sha256") != bundle_digest(app):
-        raise SetupError("Existing app changed or is unknown; preserve it and re-check adapter")
+        raise SetupError("Existing app changed or is unknown; preserve it and re-check native compatibility")
     return True
 
 
@@ -366,9 +372,9 @@ def plan(args):
             "app": str(args.app), "user_data": str(args.user_data), "auth_home": str(args.auth_home),
             "pins": {"node": NODE_VERSION, "yatorrent": release["version"], "codex": CODEX_VERSION, "playwright": PLAYWRIGHT_VERSION},
             "release": release, "startup": {"consume_codex": True, "autoStart": True, "launch_after_profile": True},
-            "operations": ["resolve official latest stable YaTorrent and verify asset SHA256; keep private Node pin", "install isolated Codex and full Playwright Chromium",
-                           "copy user-supplied external AIM2 into private runtime with mode 0600", "preserve worker binary and install bounded desktop adapter",
-                           "ad-hoc sign private app, preserve Gatekeeper", "write separate exact Chromium and role prompt reader rules and verify execpolicy",
+            "operations": ["resolve official latest stable YaTorrent and verify asset SHA256/native contract; keep private Node pin", "install isolated Codex and full Playwright Chromium",
+                           "copy user-supplied external AIM2 into private runtime with mode 0600", "install/reuse pristine official YaTorrent without app or worker patches",
+                           "verify existing application signature; preserve Gatekeeper and original app bytes", "write separate exact Chromium and role prompt reader rules and verify execpolicy", "write strict native executor-runtime.json with custom launcher and timeout1800",
                            "import profile with worker stopped if necessary", "confirm encrypted profile and auth; enable Codex and worker auto-start; verify infrastructure before app launch; confirm actual worker PID/config/timeout/heartbeat after launch"],
             "limits": {"worker_concurrency": args.worker_concurrency, "worker_timeout_seconds": 1800, "scout_threads": 10, "total_agent_slots": 11},
             "profile_required": args.profile is None, "profile_bundled": False,
@@ -377,6 +383,8 @@ def plan(args):
 
 
 def apply(args):
+    if sys.version_info < (3, 10):
+        raise SetupError('Python 3.10 or newer required; select supported Python before installation')
     # Complete entry-path preflight before process commands, mutations or network.
     args.root = command_path(args.root)
     launcher_commands(args.root)
@@ -390,15 +398,32 @@ def apply(args):
     assert_stopped()
     root, app = args.root, args.app
     marker = root / "installation.json"
-    app_owned = validate_existing_app(app, marker)
+    app_owned = False
+    if marker.exists() and app.exists():
+        saved = read_json(marker)
+        actual = plistlib.loads((app / 'Contents/Info.plist').read_bytes()).get('CFBundleShortVersionString')
+        if saved.get('app') == str(app) and actual == saved.get('app_version'):
+            app_owned = validate_existing_app(app, marker)
     try:
         release = releases.latest()
     except releases.ReleaseError as error:
         raise SetupError(str(error)) from None
-    app_reused = app_owned and read_json(marker).get("app_version") == release["version"]
+    app_reused = False
+    if app.exists():
+        actual_version = plistlib.loads((app / "Contents/Info.plist").read_bytes()).get("CFBundleShortVersionString")
+        legacy = (app / "Contents/Resources/worker-runtime/aim2-worker-original").exists()
+        if actual_version == release["version"] and not legacy:
+            try:
+                releases.validate_source(app, release)
+            except releases.ReleaseError as error:
+                raise SetupError(str(error)) from None
+            run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], timeout=180)
+            app_reused = True
+        elif not app_owned:
+            raise SetupError("Existing app is not a reviewed native installation; preserve it and choose an empty app path")
     if root.exists() and not marker.exists() and any(root.iterdir()):
         raise SetupError("Existing installation root is unknown; use an empty directory")
-    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "worker-launcher.mjs", "sbs-auth-guard.mjs"):
+    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs"):
         if not (ASSETS / name).is_file():
             raise SetupError("Required bundled asset missing")
     public_profile(args.profile)
@@ -486,49 +511,39 @@ def apply(args):
             if staging.exists():
                 shutil.rmtree(staging)
     assert_stopped()
-    # Preserve a complete pristine app for rollback before the first adapter change.
-    runtime = app / "Contents/Resources/worker-runtime"
-    worker, original = runtime / "aim2-worker", runtime / "aim2-worker-original"
-    if not original.exists():
-        backup(app, root)
-        if worker.is_symlink() or not worker.is_file():
-            raise SetupError("Expected bundled worker is unavailable")
-        shutil.copy2(worker, original)
-        original.chmod(0o755)
-    if app_reused:
-        saved = read_json(marker)
-        if digest(original) != saved.get("real_worker_sha256"):
-            raise SetupError("Preserved original worker changed")
-    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "worker-launcher.mjs", "sbs-auth-guard.mjs"):
+    # From this point on all writes are outside the app bundle. Native worker stays pristine.
+    worker = app / "Contents/Resources/worker-runtime/aim2-worker"
+    try:
+        releases.validate_source(app, release)
+    except releases.ReleaseError as error:
+        raise SetupError(str(error)) from None
+    run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], timeout=180)
+    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs"):
         write_owned(root / "lib" / name, (ASSETS / name).read_bytes(), root)
     write_owned(root / "profiles/databroker.aim2", args.profile.read_bytes(), root)
     write_json(root / "lib/runtime-config.json", {"runtime": str(root / "browser-runtime"), "browsers_path": str(root / "browsers")}, root)
-    real_codex = root / "codex/node_modules/.bin/codex"
+    # Native readiness runs real_codex directly with a minimal PATH: make the
+    # private Node explicit instead of relying on the npm shim's env shebang.
+    npm_codex = root / "codex/node_modules/@openai/codex/bin/codex.js"
+    real_codex = root / "bin/codex-real"
+    write_owned(real_codex, shell_wrapper(node, npm_codex), root, 0o755)
+    write_owned(root / "bin/codex", shell_wrapper(node, root / "lib/codex-launcher.mjs"), root, 0o755)
+    write_owned(root / "bin/browser", shell_wrapper(node, root / "lib/sbs-chromium.mjs"), root, 0o755)
+    for role in ("foreman", "scout"):
+        write_owned(root / "bin" / (role + "-reader"), shell_wrapper(node, root / "lib/sbs-read-prompt.mjs", role), root, 0o755)
     commands = launcher_commands(root, require_existing=True)
     write_json(root / "lib/install-config.json", {**commands, "real_codex": str(real_codex), "auth_home": str(args.auth_home),
                "rule_dir": str(args.auth_home / "rules"), "scout_threads": 10, "private_node": str(node), "node_bin": str(node),
-               "real_worker": str(original), "real_worker_sha256": digest(original), "codex_wrapper": str(root / "bin/codex"),
+               "real_worker": str(worker), "real_worker_sha256": digest(worker), "codex_wrapper": str(root / "bin/codex"),
+               "app": str(app), "app_version": release["version"],
                "worker_timeout_seconds": 1800, "worker_concurrency": args.worker_concurrency}, root)
-    write_owned(root / "bin/codex", shell_wrapper(node, root / "lib/codex-launcher.mjs"), root, 0o755)
-    changed = write_owned(worker, shell_wrapper(node, root / "lib/worker-launcher.mjs"), root, 0o755)
-    # Reviewed desktop readiness and buildRuntime search this path first. A root-only wrapper
-    # would remain undiscoverable on a clean machine with no global Codex CLI.
-    codex_changed = write_owned(app / "Contents/Resources/codex/codex", shell_wrapper(node, root / "lib/codex-launcher.mjs"), root, 0o755)
-    if changed or codex_changed or not app_reused:
-        run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", app], timeout=180)
-    run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], timeout=180)
-    # Recursive signing may rewrite the preserved Mach-O's signature. The runtime
-    # digest must describe the final signed binary, not its pre-signing bytes.
-    signed_config = read_json(root / "lib/install-config.json")
-    signed_config["real_worker_sha256"] = digest(original)
-    write_json(root / "lib/install-config.json", signed_config, root)
     browser = root / "lib/sbs-chromium.mjs"
     rule = args.auth_home / "rules/yatorrent-sbs-chromium.rules"
     write_owned(rule, rule_text(node, browser), root)
     check_rule(real_codex, rule, node, browser, env)
     write_json(marker, {"state": "prepared", "app": str(app), "app_version": release["version"],
                "release": release, "root": str(root), "auth_home": str(args.auth_home), "user_data": str(args.user_data), "profile_sha256": digest(args.profile),
-               "real_worker_sha256": digest(original), "bundle_sha256": bundle_digest(app),
+               "install_mode": "native", "real_worker_sha256": digest(worker), "bundle_sha256": bundle_digest(app),
                "pins": {"node": NODE_VERSION, "codex": CODEX_VERSION, "playwright": PLAYWRIGHT_VERSION}, **commands}, root)
     import startup
     try:

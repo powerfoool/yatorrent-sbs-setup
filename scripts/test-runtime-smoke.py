@@ -161,10 +161,10 @@ class FullVerification(unittest.TestCase):
         auth = base / 'auth'
         node, browser, reader = root / 'node/bin/node', root / 'lib/sbs-chromium.mjs', root / 'lib/sbs-read-prompt.mjs'
         commands = install.launcher_commands(root)
-        setup = {**commands, 'private_node': str(node), 'real_codex': str(root / 'codex/node_modules/.bin/codex'), 'auth_home': str(auth),
-                 'real_worker': str(root / 'real-worker'), 'real_worker_sha256': 'digest', 'scout_threads': 10, 'worker_timeout_seconds': 1800,
+        setup = {**commands, 'private_node': str(node), 'real_codex': str(root / 'bin/codex-real'), 'auth_home': str(auth),
+                 'real_worker': str(app / 'Contents/Resources/worker-runtime/aim2-worker'), 'real_worker_sha256': 'digest', 'scout_threads': 10, 'worker_timeout_seconds': 1800,
                  'worker_concurrency': 4, 'codex_wrapper': str(root / 'bin/codex')}
-        marker = {**commands, 'state': 'prepared', 'app': str(app), 'user_data': str(user), 'real_worker_sha256': 'digest', 'profile_sha256': 'digest'}
+        marker = {**commands, 'install_mode': 'native', 'release': {'version':'0.3.9'}, 'state': 'prepared', 'app': str(app), 'user_data': str(user), 'real_worker_sha256': 'digest', 'profile_sha256': 'digest'}
         source = {'version': 1, 'broker': {'url': 'https://broker.example', 'allow_http': False}, 'executors': {'codex': {'model': 'profile-model'}}}
         files = {root / 'installation.json': marker, root / 'lib/install-config.json': setup,
                  root / 'profile-import.json': {'source_sha256': 'digest', 'encrypted_file_sha256': 'digest'},
@@ -178,15 +178,19 @@ class FullVerification(unittest.TestCase):
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text(json.dumps(value))
             file.chmod(0o600)
-        for file, text in [(root / 'lib/codex-launcher.mjs', (install.ASSETS / 'codex-launcher.mjs').read_text()),
+        for file, text in [(root / 'bin/codex-real', install.shell_wrapper(node, root / 'codex/node_modules/@openai/codex/bin/codex.js')),
+                           (root / 'bin/browser', install.shell_wrapper(node, browser)),
+                           (root / 'bin/foreman-reader', install.shell_wrapper(node, reader, 'foreman')),
+                           (root / 'bin/scout-reader', install.shell_wrapper(node, reader, 'scout')),
+                           (root / 'lib/codex-launcher.mjs', (install.ASSETS / 'codex-launcher.mjs').read_text()),
                            (root / 'lib/sbs-auth-guard.mjs', (install.ASSETS / 'sbs-auth-guard.mjs').read_text()),
                            (reader, (install.ASSETS / reader.name).read_text()),
                            (auth / 'rules/yatorrent-sbs-chromium.rules', install.rule_text(node, browser)),
-                           (app / 'Contents/Resources/worker-runtime/aim2-worker', install.shell_wrapper(node, root / 'lib/worker-launcher.mjs')),
-                           (root / 'bin/codex', install.shell_wrapper(node, root / 'lib/codex-launcher.mjs')),
-                           (app / 'Contents/Resources/codex/codex', install.shell_wrapper(node, root / 'lib/codex-launcher.mjs'))]:
+                           (app / 'Contents/Resources/worker-runtime/aim2-worker', 'pristine-native-fixture'),
+                           (root / 'bin/codex', install.shell_wrapper(node, root / 'lib/codex-launcher.mjs'))]:
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text(text)
+            if file.parent.name == 'bin': file.chmod(0o700)
         args = argparse.Namespace(root=root, user_data=None, profile=None, wait_import=0,
                                   skip_chromium=False, skip_login=False, runtime_only=False, runtime_timeout=240)
         return args, (node, browser, reader)
@@ -198,6 +202,8 @@ class FullVerification(unittest.TestCase):
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(install, 'entry_points', return_value=paths))
             stack.enter_context(patch.object(install, 'validate_existing_app'))
+            stack.enter_context(patch.object(verify.releases, 'validate_source'))
+            stack.enter_context(patch.object(verify.runtime_contract, 'inspect', return_value={'ok':True}))
             stack.enter_context(patch.object(install, 'digest', return_value='digest'))
             stack.enter_context(patch.object(install, 'check_rule'))
             stack.enter_context(patch.object(install, 'run', side_effect=direct_run))
