@@ -29,7 +29,7 @@ def normalized_public(file, stored=False):
             raise install.SetupError("Imported profile contains plaintext credential fields")
     else:
         value.pop("credentials", None)
-    # Normalize the reviewed public transformations of YaTorrent 0.3.9.
+    # Normalize the reviewed public transformations of YaTorrent 0.3.10.
     if isinstance(value.get("broker"), dict):
         value["broker"] = dict(value["broker"])
         value["broker"]["url"] = value["broker"]["url"].rstrip("/")
@@ -129,7 +129,7 @@ def verify(args):
         install.trusted_path(file, root, executable=True)
         if file.read_text() != install.shell_wrapper(node, script, role):
             raise install.SetupError("Fixed descriptor entry point mismatch")
-    for name in ("codex-launcher.mjs", "sbs-auth-guard.mjs"):
+    for name in ("codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-task-instructions.mjs", "sbs-url-budget.mjs", "sbs-navigation-transaction.mjs"):
         installed = install.trusted_path(root / "lib" / name, root)
         if installed.read_bytes() != (install.ASSETS / name).read_bytes():
             raise install.SetupError("Codex launcher or detached auth cleanup guard differs from this release")

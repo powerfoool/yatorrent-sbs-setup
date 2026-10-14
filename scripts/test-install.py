@@ -23,6 +23,7 @@ from types import SimpleNamespace
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import install
+import releases
 import verify
 
 
@@ -52,7 +53,7 @@ class InstallerTests(unittest.TestCase):
     def test_default_root_has_no_space_and_pins_are_unchanged(self):
         self.assertEqual(install.arguments([]).root, Path.home() / ".local/share/yatorrent-sbs")
         self.assertEqual((install.VERSION, install.NODE_VERSION, install.CODEX_VERSION, install.PLAYWRIGHT_VERSION),
-                         ("0.3.9", "24.21.0", "0.162.1", "1.64.0"))
+                         ("0.3.10", "24.21.0", "0.162.1", "1.64.0"))
 
     def test_unsafe_custom_roots_stop_before_mutation_or_network(self):
         for suffix in ("space root", "quote'root", 'quote"root', "semi;root", "dollar$root", "newline\nroot", "unicode-ю", "backtick`root"):
@@ -266,6 +267,69 @@ class InstallerTests(unittest.TestCase):
             (auth_home / "auth.json").write_text("opaque fixture contents are never parsed")
             checks = verify.authentication_readback("fixture-codex", auth_home, {})
             self.assertTrue(verify.authentication_ready(checks))
+
+
+class ReleaseCompatibilityTests(unittest.TestCase):
+    def metadata(self, version='0.3.10', digest=None):
+        tag = 'yatorrent-v' + version
+        name = 'YaTorrent-' + version + '-arm64.dmg'
+        return {'draft': False, 'prerelease': False, 'tag_name': tag, 'id': 123, 'assets': [{
+            'name': name, 'browser_download_url': f'https://github.com/RudenkoAD/YaTorrent-releases/releases/download/{tag}/{name}',
+            'digest': 'sha256:' + (digest or releases.REVIEWED_ASSET_SHA256)}]}
+
+    def test_official_latest_reviewed_asset_is_accepted(self):
+        release = releases.latest(self.metadata())
+        self.assertEqual(release['version'], '0.3.10')
+        releases.require_reviewed(release)
+
+    def test_future_latest_and_same_version_asset_drift_fail_closed(self):
+        for data in [self.metadata('0.3.11'), self.metadata(digest='0' * 64)]:
+            with self.subTest(metadata=data):
+                discovered = releases.latest(data)
+                with self.assertRaises(releases.ReleaseError): releases.require_reviewed(discovered)
+                with patch.object(releases.plistlib, 'loads') as read_app:
+                    with self.assertRaises(releases.ReleaseError): releases.validate_source('/unreadable/app', discovered)
+                    read_app.assert_not_called()
+
+    def test_apply_future_latest_stops_before_runtime_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            profile = base / 'external.aim2'
+            profile.write_text('{}'); profile.chmod(0o600)
+            args = install.arguments(['--apply', '--root', str(base / 'runtime'), '--app', str(base / 'YaTorrent.app'), '--profile', str(profile)])
+            with patch.object(install, 'assert_stopped'), patch.object(install.platform, 'system', return_value='Darwin'), patch.object(install.platform, 'machine', return_value='arm64'), patch.object(releases, 'latest', return_value=releases.latest(self.metadata('0.3.11'))), patch.object(install, 'download') as download, patch.object(install, 'write_owned') as write:
+                with self.assertRaises(install.SetupError): install.apply(args)
+                download.assert_not_called(); write.assert_not_called()
+            self.assertFalse(args.root.exists())
+
+    def test_unstable_or_substituted_asset_metadata_is_refused(self):
+        for field, value in [('draft', True), ('prerelease', True), ('tag_name', 'v0.3.10')]:
+            data = self.metadata(); data[field] = value
+            with self.assertRaises(releases.ReleaseError): releases.latest(data)
+        data = self.metadata(); data['assets'][0]['browser_download_url'] = 'https://example.invalid/substitute.dmg'
+        with self.assertRaises(releases.ReleaseError): releases.latest(data)
+        data = self.metadata(); data['assets'].append(dict(data['assets'][0]))
+        with self.assertRaises(releases.ReleaseError): releases.latest(data)
+
+    def test_changed_worker_or_desktop_module_fails_source_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / 'YaTorrent.app'
+            resources = app / 'Contents/Resources/worker-runtime'
+            resources.mkdir(parents=True)
+            (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString': releases.REVIEWED_VERSION}))
+            worker = resources / 'aim2-worker'; worker.write_bytes(b'fixture worker')
+            expected_worker = hashlib.sha256(worker.read_bytes()).hexdigest()
+            module = b'fixture module'; expected_module = hashlib.sha256(module).hexdigest()
+            release = releases.latest(self.metadata())
+            with patch.object(releases, 'WORKER_SHA256', expected_worker), patch.object(releases, 'MODULE_SHA256', {'main.cjs': expected_module}), patch.object(releases, 'extract_module', return_value=module):
+                releases.validate_source(app, release)
+                worker.write_bytes(b'changed worker')
+                with self.assertRaises(releases.ReleaseError): releases.validate_source(app, release)
+                worker.write_bytes(b'fixture worker')
+                with patch.object(releases, 'extract_module', return_value=b'changed module'):
+                    with self.assertRaises(releases.ReleaseError): releases.validate_source(app, release)
+                (resources / 'aim2-worker-original').write_bytes(b'legacy patch')
+                with self.assertRaises(releases.ReleaseError): releases.validate_source(app, release)
 
 
 if __name__ == '__main__':

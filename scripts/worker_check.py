@@ -37,7 +37,7 @@ def process_identity(pid):
 
 
 def process_started_at(pid):
-    # Native 0.3.9 service.json contains only pid/port. Read process birth from
+    # Native 0.3.10 service.json contains only pid/port. Read process birth from
     # the OS rather than inventing a timestamp field in that file.
     env = dict(os.environ, LC_ALL='C')
     value = install.run(['/bin/ps', '-p', str(pid), '-o', 'lstart='], env=env, timeout=5).strip()

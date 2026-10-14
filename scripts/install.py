@@ -371,7 +371,7 @@ def plan(args):
     return {"mode": "plan", "mutates": False, "platform_required": "macOS arm64", "root": str(args.root),
             "app": str(args.app), "user_data": str(args.user_data), "auth_home": str(args.auth_home),
             "pins": {"node": NODE_VERSION, "yatorrent": release["version"], "codex": CODEX_VERSION, "playwright": PLAYWRIGHT_VERSION},
-            "release": release, "startup": {"consume_codex": True, "autoStart": True, "launch_after_profile": True},
+            "release": release, "compatibility_reviewed": release.get("version") == VERSION and release.get("sha256") == releases.REVIEWED_ASSET_SHA256, "startup": {"consume_codex": True, "autoStart": True, "launch_after_profile": True},
             "operations": ["resolve official latest stable YaTorrent and verify asset SHA256/native contract; keep private Node pin", "install isolated Codex and full Playwright Chromium",
                            "copy user-supplied external AIM2 into private runtime with mode 0600", "install/reuse pristine official YaTorrent without app or worker patches",
                            "verify existing application signature; preserve Gatekeeper and original app bytes", "write separate exact Chromium and technical reader rules and verify execpolicy", "write strict native executor-runtime.json with custom launcher and timeout1800",
@@ -406,6 +406,7 @@ def apply(args):
             app_owned = validate_existing_app(app, marker)
     try:
         release = releases.latest()
+        releases.require_reviewed(release)
     except releases.ReleaseError as error:
         raise SetupError(str(error)) from None
     app_reused = False
@@ -423,7 +424,7 @@ def apply(args):
             raise SetupError("Existing app is not a reviewed native installation; preserve it and choose an empty app path")
     if root.exists() and not marker.exists() and any(root.iterdir()):
         raise SetupError("Existing installation root is unknown; use an empty directory")
-    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs", "sbs-task-instructions.mjs", "sbs-url-budget.mjs"):
+    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs", "sbs-task-instructions.mjs", "sbs-url-budget.mjs", "sbs-navigation-transaction.mjs"):
         if not (ASSETS / name).is_file():
             raise SetupError("Required bundled asset missing")
     public_profile(args.profile)
@@ -518,7 +519,7 @@ def apply(args):
     except releases.ReleaseError as error:
         raise SetupError(str(error)) from None
     run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], timeout=180)
-    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs", "sbs-task-instructions.mjs", "sbs-url-budget.mjs"):
+    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs", "sbs-task-instructions.mjs", "sbs-url-budget.mjs", "sbs-navigation-transaction.mjs"):
         write_owned(root / "lib" / name, (ASSETS / name).read_bytes(), root)
     write_owned(root / "profiles/databroker.aim2", args.profile.read_bytes(), root)
     write_json(root / "lib/runtime-config.json", {"runtime": str(root / "browser-runtime"), "browsers_path": str(root / "browsers")}, root)

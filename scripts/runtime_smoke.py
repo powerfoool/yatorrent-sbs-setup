@@ -173,7 +173,7 @@ def run_runtime_smoke(root, timeout=240):
     launcher = install.trusted_path(root / 'lib/codex-launcher.mjs', root)
     guard = install.trusted_path(root / 'lib/sbs-auth-guard.mjs', root)
     # Byte-exact installed launcher/fixed scripts; no invented alternate runtime.
-    for target in (launcher, guard, browser, reader, root / 'lib/sbs-task-instructions.mjs', root / 'lib/sbs-url-budget.mjs'):
+    for target in (launcher, guard, browser, reader, root / 'lib/sbs-task-instructions.mjs', root / 'lib/sbs-url-budget.mjs', root / 'lib/sbs-navigation-transaction.mjs'):
         if target.read_bytes() != (install.ASSETS / target.name).read_bytes():
             raise install.SetupError('Installed runtime asset mismatch')
     profile = install.public_profile(root / 'profiles/databroker.aim2')

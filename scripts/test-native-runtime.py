@@ -32,7 +32,7 @@ class NativeRuntimeTests(unittest.TestCase):
             shutil.copy2(NODE, self.node)
         for name in ['lib', 'bin', 'auth/rules', 'user', 'codex/node_modules/@openai/codex/bin']:
             (self.root / name).mkdir(parents=True, exist_ok=True)
-        for name in ['codex-launcher.mjs', 'sbs-auth-guard.mjs', 'sbs-check-contract.mjs', 'sbs-task-instructions.mjs', 'sbs-url-budget.mjs', 'sbs-chromium.mjs', 'sbs-read-prompt.mjs']:
+        for name in ['codex-launcher.mjs', 'sbs-auth-guard.mjs', 'sbs-check-contract.mjs', 'sbs-task-instructions.mjs', 'sbs-url-budget.mjs', 'sbs-navigation-transaction.mjs', 'sbs-chromium.mjs', 'sbs-read-prompt.mjs']:
             shutil.copyfile(install.ASSETS / name, self.root / 'lib' / name)
         self.js = self.root / 'codex/node_modules/@openai/codex/bin/codex.js'
         self.js.write_text("if(process.argv[2]==='--version') console.log('codex-cli 0.162.1'); else {console.error('fixture does not execute Codex'); process.exitCode=1;}\n")
@@ -57,7 +57,7 @@ class NativeRuntimeTests(unittest.TestCase):
         raw = subprocess.check_output([self.root / 'bin/codex', '--sbs-print-config'], env=env, text=True)
         return json.loads(raw)
 
-    def test_real_r6_descriptor_accepted_by_exact_vendor_validator(self):
+    def test_current_descriptor_accepted_by_exact_vendor_validator(self):
         value = runtime_contract.inspect(self.root, APP, self.user)
         self.assertTrue(value['ok'])
         self.assertEqual(value['descriptor']['real_codex']['version'], 'codex-cli 0.162.1')

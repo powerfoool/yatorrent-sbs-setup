@@ -6,7 +6,7 @@ import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {spawn, spawnSync} from 'node:child_process';
 import crypto from 'node:crypto';
-import {parseTaskCarrier, applyTaskInstructions} from './sbs-task-instructions.mjs';
+import {parseTaskCarrier, applyTaskInstructions, MAX_TASK_BYTES} from './sbs-task-instructions.mjs';
 
 const assetDir = path.dirname(fileURLToPath(import.meta.url));
 const valueFlags = new Set(['--config', '-c', '--sandbox', '-s', '--cd', '-C', '--model', '-m', '--output-schema', '--output-last-message', '-o', '--image', '-i', '--profile', '-p', '--color', '--local-provider', '--add-dir', '--thread-source', '--cyber-access-program', '--enable', '--disable', '--ask-for-approval', '-a']);
@@ -99,7 +99,7 @@ export function printConfig(config) {
   const root = path.dirname(assetDir);
   const entryPoints = {browser: path.join(root, 'bin/browser'), foreman_reader: path.join(root, 'bin/foreman-reader'), scout_reader: path.join(root, 'bin/scout-reader')};
   const files = [config.node_bin, config.real_codex, path.join(assetDir, 'codex-launcher.mjs'),
-    path.join(assetDir, 'sbs-auth-guard.mjs'), path.join(assetDir, 'sbs-task-instructions.mjs'), path.join(assetDir, 'sbs-url-budget.mjs'), path.join(assetDir, 'sbs-chromium.mjs'), path.join(assetDir, 'sbs-read-prompt.mjs'),
+    path.join(assetDir, 'sbs-auth-guard.mjs'), path.join(assetDir, 'sbs-task-instructions.mjs'), path.join(assetDir, 'sbs-url-budget.mjs'), path.join(assetDir, 'sbs-chromium.mjs'), path.join(assetDir, 'sbs-navigation-transaction.mjs'), path.join(assetDir, 'sbs-read-prompt.mjs'),
     path.join(assetDir, 'runtime-config.json'), path.join(assetDir, 'install-config.json'), path.join(root, 'bin/codex'),
     path.join(root, 'codex/node_modules/@openai/codex/bin/codex.js'),
     ...Object.values(entryPoints), path.join(config.rule_dir, 'yatorrent-sbs-chromium.rules')];
@@ -113,7 +113,7 @@ export function printConfig(config) {
   const result = spawnSync(config.real_codex, ['--version'], {env, encoding: 'utf8', timeout: 5000, maxBuffer: 16384});
   const version = result.status === 0 && /^codex-cli (0\.162\.1)\s*$/.exec(result.stdout || '');
   if (!version) throw new Error('Actual Codex version differs from the pinned CLI');
-  return {schema_version: 1, contract: 'sbs-codex-v1', launcher_version: '7.0.0',
+  return {schema_version: 1, contract: 'sbs-codex-v1', launcher_version: '9.0.0',
     real_codex: {binary: fs.realpathSync(config.real_codex), version: 'codex-cli ' + version[1]},
     config_fingerprint: crypto.createHash('sha256').update(JSON.stringify(hashes)).digest('hex'),
     total_agent_slots: 11, sandbox: 'workspace-write', network_access: true, entry_points: entryPoints};
@@ -130,7 +130,7 @@ export async function runLauncher(input, config, {cwd = process.cwd(), env = pro
     const chunks = []; let bytes = 0;
     for await (const chunk of stdin) {
       bytes += Buffer.byteLength(chunk);
-      if (bytes > 1024 * 1024) throw new Error('Worker stdin exceeds the launcher budget');
+      if (bytes > MAX_TASK_BYTES) throw new Error('Worker stdin exceeds the launcher budget');
       chunks.push(Buffer.from(chunk));
     }
     stdinText = new TextDecoder('utf-8', {fatal: true}).decode(Buffer.concat(chunks));

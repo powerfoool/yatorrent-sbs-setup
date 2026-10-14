@@ -37,7 +37,7 @@ class UnitTests(unittest.TestCase):
             home.mkdir(mode=0o700)
             lib = root / 'lib'
             lib.mkdir()
-            for name in ['sbs-chromium.mjs', 'sbs-url-budget.mjs']:
+            for name in ['sbs-chromium.mjs', 'sbs-url-budget.mjs', 'sbs-navigation-transaction.mjs']:
                 shutil.copyfile(ASSETS / name, lib / name)
             runtime = root / 'stub-runtime'
             package = runtime / 'node_modules/playwright'
@@ -150,9 +150,18 @@ console.log('budget assertions passed');
 
 class FixtureHandler(http.server.BaseHTTPRequestHandler):
     slow_calls = 0
+    redirect_requests = []
     def log_message(self, *args):
         pass
     def do_GET(self):
+        if self.path.startswith(('/get-301/', '/get-302/')):
+            type(self).redirect_requests.append(self.path)
+            prefix, step = self.path.rsplit('/', 1)
+            if int(step) < 20:
+                self.send_response(int(prefix.rsplit('-', 1)[1]))
+                self.send_header('Location', prefix + '/' + str(int(step) + 1))
+                self.end_headers()
+                return
         if self.path == '/slow':
             type(self).slow_calls += 1
             if type(self).slow_calls == 1:
@@ -210,7 +219,7 @@ class BrowserTests(unittest.TestCase):
         self.home.mkdir(mode=0o700)
         self.lib = self.root / 'lib'
         self.lib.mkdir()
-        for name in ['sbs-chromium.mjs', 'sbs-url-budget.mjs']:
+        for name in ['sbs-chromium.mjs', 'sbs-url-budget.mjs', 'sbs-navigation-transaction.mjs']:
             shutil.copyfile(ASSETS / name, self.lib / name)
         shutil.copyfile(RUNTIME / 'lib/runtime-config.json', self.lib / 'runtime-config.json')
         self.env = dict(os.environ, SBS_JOB_HOME=str(self.home))
@@ -248,6 +257,8 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(reply['ok'], reply)
         self.assertEqual(reply['event'], 'ready')
         self.assertTrue(reply['spawn_process_captured'])
+        self.assertTrue(reply['chromium_sandbox'])
+        self.assertTrue(reply['tls_verification'])
         process.owned_browser_pid = reply['owned_browser_pid']
         process.session = reply.get('session')
         return process
@@ -283,7 +294,11 @@ class BrowserTests(unittest.TestCase):
         failed = self.action(process, op='goto', url=self.base + '/fail', purpose='Check failure')
         self.assertFalse(failed['ok'], failed)
         redirect = self.action(process, op='goto', url=self.base + '/redirect', purpose='Follow missing detail')
-        self.assertFalse(redirect['ok'], redirect)
+        # An allowed same-origin automatic chain is one attempted internal
+        # page, including its final target; it needs no extra observed link.
+        self.assertTrue(redirect['ok'], redirect)
+        self.assertEqual(redirect['url'], self.base + '/unobserved')
+        self.assertEqual(redirect['navigation']['automatic_transitions'], 1)
         state = json.loads(self.statefile(url).read_text())
         self.assertEqual(len(state['internal_pages']), 3)
         self.close(process)
@@ -386,6 +401,27 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(reply['budget']['started_at'], checkpoint['started_at'])
         self.assertGreater(reply['budget']['elapsed_ms'], 4900)
         self.close(process)
+
+    def test_preliminary_get_reads_first_redirect_without_contacting_chain(self):
+        for status in [301, 302]:
+            with self.subTest(status=status):
+                endpoint = f'/get-{status}/0'
+                url = self.base + endpoint
+                FixtureHandler.redirect_requests.clear()
+                result = subprocess.run(self.command(url, '--get64'), env=self.env,
+                    cwd=self.root, capture_output=True, text=True, timeout=8)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                reply = json.loads(result.stdout)
+                self.assertTrue(reply['ok'], reply)
+                self.assertTrue(reply['tls_verification'])
+                self.assertEqual(reply['http_status'], status)
+                self.assertEqual(reply['url'], url)
+                self.assertEqual(FixtureHandler.redirect_requests, [endpoint])
+                self.assertEqual(reply['budget']['internal_pages'], [])
+                self.assertFalse(reply['budget']['initial_navigation_started'])
+                self.assertEqual(reply['budget']['reloads'], 0)
+                self.assertEqual(json.loads(self.statefile(url).read_text())['started_at'], reply['budget']['started_at'])
+                self.assertFalse(list((self.home / 'url-visits').glob('*.lock')))
 
     def test_successful_get_does_not_reset_browser_budget(self):
         url = self.base + '/index'

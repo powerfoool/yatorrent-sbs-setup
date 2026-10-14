@@ -1,4 +1,4 @@
-# Нативная настройка r7
+# Нативная настройка r9
 
 ## Пути и ownership
 
@@ -8,7 +8,7 @@ root `~/.local/share/yatorrent-sbs`, app `~/Applications/YaTorrent.app`, шта�
 
 ## executor-runtime.json
 
-YaTorrent 0.3.9 поддерживает отдельную постоянную настройку. Приложение и нативный worker не патчатся, worker adapter отсутствует, app.asar и подпись не меняются. Стоковый app этой версии можно переиспользовать после сверки ресурсов и подписи. Известную установку r5 при поручении обновить заменяют полной проверенной официальной копией с backup; неизвестное старое/изменённое приложение сохраняют и предлагают отдельный путь.
+YaTorrent0.3.10 поддерживает отдельную постоянную настройку. Совместимость нативного контракта подтверждена по официальному DMG/SHA256, подписи установленного приложения и точным ASAR/worker ресурсам. Нормализованные Codex runtime, desktop service и broker transport сохранены; новый prepared_materials=false по умолчанию в шаблоне batch не меняет прежний single-item маршрут. Полная verify фактической установки остаётся обязательной. Приложение и нативный worker не патчатся, worker adapter отсутствует, app.asar и подпись не меняются. Стоковый app этой версии можно переиспользовать после сверки ресурсов и подписи. Известную установку r5 при поручении обновить заменяют полной проверенной официальной копией с backup; неизвестное старое/изменённое приложение сохраняют и предлагают отдельный путь.
 
 В штатных данных приложения файл0600:
 ```json
@@ -33,7 +33,7 @@ JSON отсутствует → стандартный Codex/180с; неверн
 {
   "schema_version":1,
   "contract":"sbs-codex-v1",
-  "launcher_version":"7.0.0",
+  "launcher_version":"9.0.0",
   "real_codex":{"binary":"<root>/bin/codex-real","version":"codex-cli 0.162.1"},
   "config_fingerprint":"<64 hex characters>",
   "total_agent_slots":11,
@@ -62,8 +62,8 @@ autoUpdate сохраняет выбор владельца. Перед обыч
 
 ## Обновления и источники
 
-Latest stable разрешается через официальный GitHub API; SHA256 из release metadata обязателен. Нативный worker и проверенные ASAR модули сверяются с контрактом0.3.9. Новое несовместимое приложение не устанавливается вслепую; Codex pin/integrity отдельно не меняются. Автообновление может поменять контракт: повтори приёмку фактического runtime, не полагайся на прежний verification.json. Не переподписывать bundle, не отключать Gatekeeper/quarantine.
+Latest stable разрешается через официальный GitHub API; SHA256 из release metadata обязателен. Нативный worker и ASAR модули сверяются с проверенным контрактом0.3.10. Другой новый latest stable требует собственной проверки совместимости, не сравнения номера версии. Новое несовместимое приложение не устанавливается вслепую; Codex pin/integrity отдельно не меняются. Автообновление может поменять контракт: повтори приёмку фактического runtime, не полагайся на прежний verification.json. Не переподписывать bundle, не отключать Gatekeeper/quarantine.
 
-[YaTorrent 0.3.9](https://nda.ya.ru/t/UH7A5RKD7ub4o7), [Node 24.21.0](https://nda.ya.ru/t/JYqU8xp27ub4o3), [Playwright Chromium](https://playwright.dev/docs/browsers). Контракт взят из официальных ресурсов релиза; сборка ZIP не заменяет полную verify на чистой целевой macOS и broker end-to-end.
+[YaTorrent0.3.10 — официальный релиз](https://github.com/RudenkoAD/YaTorrent-releases/releases/tag/yatorrent-v0.3.10), [Node 24.21.0](https://nda.ya.ru/t/JYqU8xp27ub4o3), [Playwright Chromium](https://playwright.dev/docs/browsers). Контракт взят из официальных ресурсов релиза; сборка ZIP не заменяет полную verify на чистой целевой macOS и broker end-to-end.
 
-Readers в descriptor — технические entry points для нативной совместимости, не источник инструкций оценки. SBS packet проверяется launcher7 до модели. Принимающие SBS peers должны пройти instruction smoke; версия приложения0.3.9 сама по себе этого не доказывает.
+Readers в descriptor — технические entry points для нативной совместимости, не источник инструкций оценки. SBS packet V2 с URL-only pair проверяется launcher9 до модели. Принимающие SBS peers должны пройти instruction smoke; версия приложения0.3.10 сама по себе этого не доказывает.

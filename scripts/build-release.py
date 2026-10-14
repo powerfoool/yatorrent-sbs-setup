@@ -19,6 +19,7 @@ schemas/default-final.schema.json
 assets/codex-launcher.mjs
 assets/sbs-task-instructions.mjs
 assets/sbs-url-budget.mjs
+assets/sbs-navigation-transaction.mjs
 assets/sbs-auth-guard.mjs
 assets/sbs-chromium.mjs
 assets/sbs-read-prompt.mjs
@@ -38,6 +39,8 @@ scripts/test-task-instructions.py
 scripts/instruction_smoke.py
 scripts/test-instruction-smoke.py
 scripts/test-url-budget.py
+scripts/test-navigation.py
+scripts/serp_urls.py
 scripts/coordinator_setup.py
 scripts/coordinator_data.py
 scripts/test-coordinator.py

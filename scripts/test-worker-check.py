@@ -24,7 +24,7 @@ class WorkerCheckTests(unittest.TestCase):
         self.binary.write_bytes(b'fictional worker; never executed')
         self.binary.chmod(0o700)
         self.setup = {'real_worker': str(self.binary), 'real_worker_sha256': install.digest(self.binary),
-                      'auth_home': str(self.root / 'auth'), 'codex_wrapper': str(self.root / 'bin/codex'), 'worker_concurrency': 4, 'app_version':'0.3.9'}
+                      'auth_home': str(self.root / 'auth'), 'codex_wrapper': str(self.root / 'bin/codex'), 'worker_concurrency': 4, 'app_version':'0.3.10'}
         (self.root/'bin').mkdir()
         (self.root/'bin/codex').write_text('fixed launcher fixture')
         self.descriptor = {'schema_version':1,'contract':'sbs-codex-v1','launcher_version':'6.0.0','config_fingerprint':'f'*64,'total_agent_slots':11,'sandbox':'workspace-write','network_access':True,'real_codex':{'binary':str(self.root/'real-codex'),'version':'codex-cli 0.162.1'}}
@@ -40,7 +40,7 @@ class WorkerCheckTests(unittest.TestCase):
         h=runtime_contract.fingerprint(runtime_contract.expected(self.root))
         identity={'realpath':str(self.root/'bin/codex'),'sha256':install.digest(self.root/'bin/codex')}
         self.config['executors']['codex']['runtime']={'mode':'custom_launcher','config_hash':h,'launcher_identity':identity}
-        self.metrics['codex_runtime']={'pid':42,'started_at':self.now-1,'version':'0.3.9','codex_version':'codex-cli 0.162.1','mode':'custom_launcher','binary':self.setup['codex_wrapper'],'launcher_identity':identity,'timeout_seconds':1800,'concurrency':4,'config_hash':h,'contract':'sbs-codex-v1','contract_version':'6.0.0','config_fingerprint':'f'*64,'real_codex':self.descriptor['real_codex'],'ready':True,'error':None,'restart_required':False,'accepting':True}
+        self.metrics['codex_runtime']={'pid':42,'started_at':self.now-1,'version':'0.3.10','codex_version':'codex-cli 0.162.1','mode':'custom_launcher','binary':self.setup['codex_wrapper'],'launcher_identity':identity,'timeout_seconds':1800,'concurrency':4,'config_hash':h,'contract':'sbs-codex-v1','contract_version':'6.0.0','config_fingerprint':'f'*64,'real_codex':self.descriptor['real_codex'],'ready':True,'error':None,'restart_required':False,'accepting':True}
         self.persist()
 
     def tearDown(self):

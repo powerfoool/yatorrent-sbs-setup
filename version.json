@@ -1,6 +1,6 @@
 {
   "name": "yatorrent-sbs-setup",
-  "version": "7.0.0",
+  "version": "9.0.0",
   "short_description": "YaTorrent SBS: нативный worker и координатор Google Sheets на macOS",
-  "description": "YaTorrent с executor-runtime.json и sbs-codex-v1. Инструкции оценки выбирает только координатор по команде пользователя и передаёт в input_data; launcher применяет их до запуска бригадира и разведчиков. Worker не читает стандартные промпты. Ограниченный обход URL, 11 слотов, 4 jobs и timeout1800. Профили и credentials внешние."
+  "description": "URL-only SBS: координатор локально извлекает до пяти подтверждённых URL каждой стороны и передаёт sbs-instructions-v2. Только координатор выбирает полные роли по команде пользователя; launcher применяет их до модели. Оценка ранжирования и посещённых страниц, без визуальной SERP; extra_blocks=null. Ограниченный обход URL, 11 слотов, 4 jobs и timeout1800. CLI0.162.1; AIM2 и credentials внешние. Default result_pool=kron."
 }

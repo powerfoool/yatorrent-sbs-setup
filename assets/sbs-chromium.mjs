@@ -8,6 +8,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {openBudget, normalizedUrl} from './sbs-url-budget.mjs';
+import {NavigationTransaction} from './sbs-navigation-transaction.mjs';
 const assetDir = path.dirname(fileURLToPath(import.meta.url));
 function loadRuntime() {
   const config = JSON.parse(fs.readFileSync(path.join(assetDir, 'runtime-config.json'), 'utf8'));
@@ -81,12 +82,15 @@ if(mode==='--send'||mode==='--send64') {
 }
 let browser, browserServer, context, controlDir, controlServer, launchPromise, finishing, stopBudgetWatch, hardBudgetTimer, ownedProcess, ownedDetached=false, ownedGroupGone=false;
 const connections=new Set();
+let lastNavigation=null;
 const budget=assignedUrl&&process.env.SBS_JOB_HOME ? openBudget(assignedUrl,process.env.SBS_JOB_HOME) : null;
 if(mode==='--get64') {
   if(!budget)throw new Error('Preliminary GET needs coordinator task context');
   try {
     if(process.env.NODE_TLS_REJECT_UNAUTHORIZED==='0')throw new Error('TLS verification is required');
-    const response=await fetch(publicUrl(assignedUrl),{signal:AbortSignal.timeout(budget.timeout(5000))});
+    // Inspect only the first HTTP response; automatic chains belong to the
+    // bounded Chromium transaction, never fetch's implicit redirect limit.
+    const response=await fetch(publicUrl(assignedUrl),{redirect:'manual',signal:AbortSignal.timeout(budget.timeout(5000))});
     const type=response.headers.get('content-type')||'';let text='';
     if(/^(text\/|application\/(json|xhtml\+xml))/.test(type)) {
       const reader=response.body?.getReader();let size=0,chunks=[];
@@ -195,11 +199,13 @@ try {
       // the current page. A pathname change still needs an observed link.
       if(before.origin===after.origin&&before.pathname===after.pathname){trackedDocumentUrl=url;stateUrl=value;return;}
       if(!navigationIntent)throw new Error('Unrequested same-document page navigation');
-      budget.navigation(url,navigationIntent.purpose,navigationIntent.links);
+      if(navigationIntent.transaction)navigationIntent.transaction.sameDocument(url);
+      else budget.navigation(url,navigationIntent.purpose,navigationIntent.links);
       trackedDocumentUrl=url;stateUrl=null;
     } catch(error){
       // Keep violations sticky, including an unobserved away-and-back pair
       // whose final URL alone would conceal the intermediate page change.
+      error.source ||= 'runtime_navigation_guard';
       fatalNavigationError=error;navigationError=error;
       context.close().catch(()=>{});
     }
@@ -218,56 +224,75 @@ try {
     if(fatalNavigationError)throw fatalNavigationError;
   }
   context.on('page',p=>{if(p!==page)p.close().catch(()=>{});});
+  let navigationCDP=null;
   if(budget)await context.route('**/*',async route=>{
-    const r=route.request();
-    if(!r.isNavigationRequest()){await route.continue();return;}
-    if(r.frame()!==page.mainFrame()){
-      // Ordinary embedded frames may load; new top-level pages must not bypass
-      // this URL session's accounting.
-      if(r.frame().parentFrame())await route.continue();else await route.abort('blockedbyclient');return;
-    }
-    try {
-      if(finishing)throw new Error('URL session is closing');
-      const url=normalizedUrl(r.url());
-      if(!navigationIntent)throw new Error('Navigation requires an explicit operation and missing-fact purpose');
-      if(r.redirectedFrom()) {
-        // Redirect destinations are validated and counted by the response
-        // interceptor below, before Chromium follows the Location header.
-        budget.timeout(1);
-      } else if(!navigationIntent.counted) {
-        budget.navigation(url,navigationIntent.purpose,navigationIntent.links);
-        navigationIntent.counted=true;navigationIntent.original=url===budget.url;navigationIntent.url=url;navigationIntent.allowed.add(url);
-      } else if(url!==navigationIntent.url)throw new Error('Unexpected additional navigation');
-      await route.continue();
-    } catch(e){navigationError=e;await route.abort('blockedbyclient');}
+    const request=route.request();
+    // CDP guards the assigned page; other top-level pages must be denied
+    // before contact. Ordinary embedded frames retain the existing policy.
+    if(request.isNavigationRequest()&&request.frame()!==page.mainFrame()&&!request.frame().parentFrame())await route.abort('blockedbyclient');
+    else await route.continue();
   });
+  function beginTransaction(url,intent){
+    intent.transaction=new NavigationTransaction(url,{original:intent.original,
+      allowedOrigins:[new URL(budget.url).origin,new URL(budget.primary).origin],remaining:budget.remaining()});
+    return intent.transaction;
+  }
+  async function failedTransaction(error,intent){
+    const tx=intent?.transaction;let failure=navigationError||error;
+    if(tx&&!tx.done){
+      if(!navigationError&&Date.now()>=tx.deadline)failure=Object.assign(new Error('Automatic navigation deadline exceeded'),{source:'runtime_navigation_guard'});
+      if(failure.source==='runtime_navigation_guard')tx.failure=failure.message;
+      // A timed-out goto does not itself cancel a pending Document response.
+      // Stop only this page's loading; cleanup failures retain the real cause.
+      if(navigationCDP)await navigationCDP.send('Page.stopLoading').catch(()=>{});
+      lastNavigation=tx.snapshot();
+    }
+    return failure;
+  }
+  async function settleTransaction(intent){
+    const tx=intent?.transaction;if(!tx)return;
+    while(true){
+      await guardNavigation();budget.timeout(1);
+      if(tx.settled(page.url())){lastNavigation=tx.finish(page.url());return;}
+      await delay(Math.min(50,tx.timeout(),budget.timeout(50)));
+    }
+  }
+  page.on('domcontentloaded',()=>navigationIntent?.transaction?.domReady());
   if(budget){
-    // Playwright routes only the first request in an HTTP redirect chain. Use
-    // Chromium's response-stage interception for every Document redirect;
-    // a disallowed Location must be rejected before it contacts the target.
-    const cdp=await context.newCDPSession(page);
+    const cdp=navigationCDP=await context.newCDPSession(page);
     const mainFrameId=(await cdp.send('Page.getFrameTree')).frameTree.frame.id;
+    const initiators=new Map();
+    cdp.on('Network.requestWillBeSent',event=>{if(event.frameId===mainFrameId&&event.type==='Document'){initiators.set(event.requestId,event.initiator?.type||'unknown');if(initiators.size>50)initiators.delete(initiators.keys().next().value);}});
     cdp.on('Fetch.requestPaused',async event=>{
-      try {
-        if(event.frameId===mainFrameId&&[301,302,303,307,308].includes(event.responseStatusCode)) {
-          const location=event.responseHeaders?.find(h=>h.name.toLowerCase()==='location')?.value;
-          if(location){
-            const destination=normalizedUrl(new URL(location,event.request.url).href);
-            if(!navigationIntent)throw new Error('Redirect requires an explicit navigation operation');
-            if(!navigationIntent.original){budget.navigation(destination,navigationIntent.purpose,navigationIntent.links);navigationIntent.allowed.add(destination);}
-            else {budget.timeout(1);navigationIntent.allowed.add(destination);}
+      try{
+        if(event.frameId===mainFrameId){
+          if(event.responseStatusCode!==undefined){
+            navigationIntent?.transaction?.response(event.requestId,event.request.url,event.responseStatusCode);
+          }else{
+            if(finishing)throw new Error('URL session is closing');
+            const url=normalizedUrl(publicUrl(event.request.url));
+            if(!navigationIntent)throw new Error('Navigation requires an explicit operation and missing-fact purpose');
+            if(!navigationIntent.counted){
+              budget.navigation(url,navigationIntent.purpose,navigationIntent.links);
+              navigationIntent.counted=true;navigationIntent.original=url===budget.url;navigationIntent.url=url;
+              beginTransaction(url,navigationIntent);
+            }
+            const tx=navigationIntent.transaction;
+            if(!tx)throw new Error('Automatic navigation transaction is unavailable');
+            tx.accept({id:event.requestId,url,method:event.request.method,initiator:initiators.get(event.networkId)||'unknown'});
+            navigationIntent.allowed.add(url);
           }
         }
         await cdp.send('Fetch.continueRequest',{requestId:event.requestId});
-      } catch(error){
-        if(!finishing)navigationError=error;
+      }catch(error){
+        if(!finishing){error.source ||= 'runtime_navigation_guard';navigationError=error;if(!navigationIntent)fatalNavigationError=error;}
         await cdp.send('Fetch.failRequest',{requestId:event.requestId,errorReason:'BlockedByClient'}).catch(()=>{});
       }
     });
-    cdp.on('Page.frameNavigated',event=>{if(event.frame.id===mainFrameId){trackedDocumentUrl=event.frame.url;stateUrl=null;}});
+    cdp.on('Page.frameNavigated',event=>{if(event.frame.id===mainFrameId){trackedDocumentUrl=event.frame.url;stateUrl=null;navigationIntent?.transaction?.committed();}});
     cdp.on('Page.navigatedWithinDocument',event=>{if(event.frameId===mainFrameId)sameDocumentNavigation(event.url);});
-    await cdp.send('Page.enable');
-    await cdp.send('Fetch.enable',{patterns:[{urlPattern:'*',resourceType:'Document',requestStage:'Response'}]});
+    await cdp.send('Page.enable');await cdp.send('Network.enable');
+    await cdp.send('Fetch.enable',{patterns:[{urlPattern:'*',resourceType:'Document',requestStage:'Request'},{urlPattern:'*',resourceType:'Document',requestStage:'Response'}]});
   }
   page.on('dialog',d=>d.dismiss());
   async function observe(){
@@ -278,17 +303,21 @@ try {
     const title=await page.title(),text=(await page.locator('body').innerText({timeout:budget?budget.timeout(10000):10000})).slice(0,60000);
     await guardNavigation();
     lastObservation={id:crypto.randomBytes(16).toString('hex'),at:Date.now(),url:page.url()};
-    return {url:page.url(),title,text,controls,observation_id:lastObservation.id,...(stateUrl?{state_url:stateUrl}: {}),...(budget?{budget:budget.persist()}: {})};
+    return {url:page.url(),title,text,controls,observation_id:lastObservation.id,...(lastNavigation?{navigation:lastNavigation}:{}),...(stateUrl?{state_url:stateUrl}: {}),...(budget?{budget:budget.persist()}: {})};
   }
   async function navigate(url,purpose){
     const previous=navigationIntent;
-    if(budget){budget.navigation(url,purpose,observedLinks);navigationIntent={url:normalizedUrl(url),purpose,links:new Set(observedLinks),allowed:new Set([normalizedUrl(url)]),counted:true,original:normalizedUrl(url)===budget.url};}
-    try {
-      const response=await page.goto(publicUrl(url),{waitUntil:'domcontentloaded',timeout:budget?budget.timeout(30000):45000});
+    if(budget){
+      try{budget.navigation(url,purpose,observedLinks);}catch(error){error.source ||= 'runtime_navigation_guard';throw error;}
+      navigationIntent={url:normalizedUrl(url),purpose,links:new Set(observedLinks),allowed:new Set([normalizedUrl(url)]),counted:true,original:normalizedUrl(url)===budget.url};beginTransaction(url,navigationIntent);
+    }
+    try{
+      const response=await page.goto(publicUrl(url),{waitUntil:'domcontentloaded',timeout:budget?Math.min(budget.timeout(30000),navigationIntent.transaction.timeout()):45000});
       if(navigationError)throw navigationError;
-      if(budget&&navigationIntent.original){budget.primary=normalizedUrl(page.url());budget.persist();}
+      if(budget){await settleTransaction(navigationIntent);if(navigationIntent.original){budget.primary=normalizedUrl(page.url());budget.persist();}return {status:()=>lastNavigation.final_http_status};}
       return response;
-    } finally{navigationIntent=previous;}
+    }catch(error){throw await failedTransaction(error,navigationIntent);}
+    finally{navigationIntent=previous;}
   }
   const runtimeReport={node:process.version,playwright:require('playwright/package.json').version,chromium:browser.version(),chromium_sandbox:true,tls_verification:true,headless:!headed,android,...(browserServer?{owned_browser_pid:browserServer.process().pid,spawn_process_captured:ownedProcess===browserServer.process()}: {})};
   if(mode==='--check') {
@@ -306,7 +335,7 @@ try {
       if(fatalNavigationError)throw fatalNavigationError;
       const previous=navigationIntent;navigationError=null;
       if(budget)navigationIntent={purpose:c?.purpose,links:new Set(observedLinks),allowed:new Set(),counted:false,original:false};
-      try{return await performAction(c);}finally{navigationIntent=previous;navigationError=null;}
+      try{return await performAction(c);}catch(error){throw await failedTransaction(error,navigationIntent);}finally{if(navigationIntent?.transaction&&!navigationIntent.transaction.done)lastNavigation=navigationIntent.transaction.snapshot();navigationIntent=previous;navigationError=null;}
     }
     async function performAction(c) {
         if(!c||typeof c!=='object'||Array.isArray(c)||!operations.includes(c.op))throw new Error('Unsupported operation');
@@ -360,6 +389,7 @@ try {
         else if(c.op==='wait'){if(!Number.isInteger(c.ms)||c.ms<0||c.ms>10000)throw new Error('Wait must be 0..10000 ms');await page.waitForTimeout(budget?budget.timeout(c.ms):c.ms);}
         else throw new Error('Unsupported operation');
         if(navigationError)throw navigationError;
+        if(navigationIntent?.transaction&&!navigationIntent.transaction.done){await settleTransaction(navigationIntent);if(navigationIntent.original){budget.primary=normalizedUrl(page.url());budget.persist();}}
         await guardNavigation();
         return {ok:true,op:c.op,...extra,...await observe()};
     }
@@ -382,7 +412,7 @@ try {
             accepted=true;clearTimeout(idle);
             queue=queue.then(async()=>{
               let c,result;
-              try{c=JSON.parse(buf.split('\n')[0]);result=await action(c);}catch(e){result={ok:false,error:String(e)};}
+              try{c=JSON.parse(buf.split('\n')[0]);result=await action(c);}catch(e){result={ok:false,error:String(e),error_source:e.source||null,...(lastNavigation?{navigation:lastNavigation}:{})};}
               conn.end(JSON.stringify(result)+'\n');
               if(c?.op==='close'){clearTimeout(idle);server.close(resolve);}else resetIdle();
             });
@@ -398,9 +428,9 @@ try {
       const input=createInterface({input:process.stdin,terminal:false});
       for await(const line of input){
         if(!line.trim())continue;
-        try{const c=JSON.parse(line);emit(await action(c));if(c.op==='close'){input.close();process.stdin.pause();break;}}catch(e){emit({ok:false,error:String(e)});}
+        try{const c=JSON.parse(line);emit(await action(c));if(c.op==='close'){input.close();process.stdin.pause();break;}}catch(e){emit({ok:false,error:String(e),error_source:e.source||null,...(lastNavigation?{navigation:lastNavigation}:{})});}
       }
     }
   }
-} catch(e){emit({ok:false,error:String(e)});process.exitCode=1;}
+} catch(e){emit({ok:false,error:String(e),error_source:e.source||null,...(lastNavigation?{navigation:lastNavigation}:{})});process.exitCode=1;}
 finally{await finish();if(controlDir)fs.rmSync(controlDir,{recursive:true,force:true});}

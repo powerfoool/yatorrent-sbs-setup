@@ -164,7 +164,7 @@ class FullVerification(unittest.TestCase):
         setup = {**commands, 'private_node': str(node), 'real_codex': str(root / 'bin/codex-real'), 'auth_home': str(auth),
                  'real_worker': str(app / 'Contents/Resources/worker-runtime/aim2-worker'), 'real_worker_sha256': 'digest', 'scout_threads': 10, 'worker_timeout_seconds': 1800,
                  'worker_concurrency': 4, 'codex_wrapper': str(root / 'bin/codex')}
-        marker = {**commands, 'install_mode': 'native', 'release': {'version':'0.3.9'}, 'state': 'prepared', 'app': str(app), 'user_data': str(user), 'real_worker_sha256': 'digest', 'profile_sha256': 'digest'}
+        marker = {**commands, 'install_mode': 'native', 'release': {'version':'0.3.10'}, 'state': 'prepared', 'app': str(app), 'user_data': str(user), 'real_worker_sha256': 'digest', 'profile_sha256': 'digest'}
         source = {'version': 1, 'broker': {'url': 'https://broker.example', 'allow_http': False}, 'executors': {'codex': {'model': 'profile-model'}}}
         files = {root / 'installation.json': marker, root / 'lib/install-config.json': setup,
                  root / 'profile-import.json': {'source_sha256': 'digest', 'encrypted_file_sha256': 'digest'},
@@ -186,6 +186,7 @@ class FullVerification(unittest.TestCase):
                            (root / 'lib/sbs-auth-guard.mjs', (install.ASSETS / 'sbs-auth-guard.mjs').read_text()),
                            (root / 'lib/sbs-task-instructions.mjs', (install.ASSETS / 'sbs-task-instructions.mjs').read_text()),
                            (root / 'lib/sbs-url-budget.mjs', (install.ASSETS / 'sbs-url-budget.mjs').read_text()),
+                           (root / 'lib/sbs-navigation-transaction.mjs', (install.ASSETS / 'sbs-navigation-transaction.mjs').read_text()),
                            (reader, (install.ASSETS / reader.name).read_text()),
                            (auth / 'rules/yatorrent-sbs-chromium.rules', install.rule_text(node, browser)),
                            (app / 'Contents/Resources/worker-runtime/aim2-worker', 'pristine-native-fixture'),

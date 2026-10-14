@@ -83,6 +83,8 @@ class PublicTests(unittest.TestCase):
         with zipfile.ZipFile(self.base / 'release.zip') as archive:
             self.assertFalse(any(n.endswith(('.aim2', '.auth', 'auth.json')) for n in archive.namelist()))
             self.assertIn('yatorrent-sbs-setup/MANIFEST.sha256', archive.namelist())
+            for name in ('assets/sbs-navigation-transaction.mjs', 'scripts/serp_urls.py', 'scripts/test-navigation.py'):
+                self.assertIn('yatorrent-sbs-setup/' + name, archive.namelist())
 
     def test_private_files_block_public_build(self):
         target = self.package()

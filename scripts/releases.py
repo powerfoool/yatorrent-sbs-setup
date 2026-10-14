@@ -8,10 +8,11 @@ import struct
 from urllib.request import Request, urlopen
 
 LATEST_API = 'https://api.github.com/repos/RudenkoAD/YaTorrent-releases/releases/latest'
-REVIEWED_VERSION = '0.3.9'
-WORKER_SHA256 = '050e75587af4fb1da8f419d998f6b8fecde54910273aab8c5f9171e810cb0161'
+REVIEWED_VERSION = '0.3.10'
+REVIEWED_ASSET_SHA256 = '78a0162d2a9e134e67c54d2d660852ae652abd7ab263695167ba48433cf9a088'
+WORKER_SHA256 = '1a116aa8c2e53fd52e888cb4b7e841cf04ebcf23edc83c92f91bc30f42a0c0e2'
 MODULE_SHA256 = {
-    'main.cjs': '0444a3b8be4cf0fc50dedef695cbd502df262f90a1014c3e44bb865793bb7849',
+    'main.cjs': '919c811218823f144a6942641ae8d15feb7f56009d0360afdebf313eb0e912d7',
     'lib/desktop-worker.cjs': '1bbe01d2c2479b4adfcfcaea5f210ee91eb1c4e86b0cfa1791b1e1e9f82af752',
     'lib/profile.cjs': '9fb951ac419dceab4db18775b7dc5e83a95298ec92df99f553d91f4ea23077bf',
     'lib/codex.cjs': '59461932912eeb85ed65fe5eec026fc208e9833e322aaddfb71343c3e7aa146e',
@@ -73,7 +74,13 @@ def extract_module(app, name):
         return source.read(item['size'])
 
 
+def require_reviewed(release):
+    if release.get('version') != REVIEWED_VERSION or release.get('sha256') != REVIEWED_ASSET_SHA256:
+        raise ReleaseError('Official latest release differs from reviewed0.3.10; review compatibility before installation, no older-version fallback')
+
+
 def validate_source(app, release):
+    require_reviewed(release)
     app = Path(app)
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     if info.get('CFBundleShortVersionString') != release['version']:
@@ -84,9 +91,9 @@ def validate_source(app, release):
         while block := source.read(1024 * 1024):
             digest.update(block)
     if digest.hexdigest() != WORKER_SHA256:
-        raise ReleaseError('Native worker differs from reviewed0.3.9; review compatibility before installation, no older-version fallback')
+        raise ReleaseError('Native worker differs from reviewed0.3.10; review compatibility before installation, no older-version fallback')
     for name, expected in MODULE_SHA256.items():
         if hashlib.sha256(extract_module(app, name)).hexdigest() != expected:
-            raise ReleaseError('Native desktop module differs from reviewed0.3.9')
+            raise ReleaseError('Native desktop module differs from reviewed0.3.10')
     if (app / 'Contents/Resources/worker-runtime/aim2-worker-original').exists():
         raise ReleaseError('App contains a legacy patched worker; use a pristine official application')

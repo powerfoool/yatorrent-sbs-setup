@@ -38,7 +38,7 @@ def configure(root, user_data):
 
 
 def inspect(root, app, user_data):
-    """Validate the real descriptor with the pristine installed 0.3.9 module."""
+    """Validate the real descriptor with the pristine reviewed installed module."""
     wanted = readback(root, user_data)
     module = releases.extract_module(app, 'lib/executor-runtime.cjs')
     if hashlib.sha256(module).hexdigest() != releases.MODULE_SHA256['lib/executor-runtime.cjs']:
