@@ -32,7 +32,7 @@ class NativeRuntimeTests(unittest.TestCase):
             shutil.copy2(NODE, self.node)
         for name in ['lib', 'bin', 'auth/rules', 'user', 'codex/node_modules/@openai/codex/bin']:
             (self.root / name).mkdir(parents=True, exist_ok=True)
-        for name in ['codex-launcher.mjs', 'sbs-auth-guard.mjs', 'sbs-check-contract.mjs', 'sbs-chromium.mjs', 'sbs-read-prompt.mjs']:
+        for name in ['codex-launcher.mjs', 'sbs-auth-guard.mjs', 'sbs-check-contract.mjs', 'sbs-task-instructions.mjs', 'sbs-url-budget.mjs', 'sbs-chromium.mjs', 'sbs-read-prompt.mjs']:
             shutil.copyfile(install.ASSETS / name, self.root / 'lib' / name)
         self.js = self.root / 'codex/node_modules/@openai/codex/bin/codex.js'
         self.js.write_text("if(process.argv[2]==='--version') console.log('codex-cli 0.162.1'); else {console.error('fixture does not execute Codex'); process.exitCode=1;}\n")

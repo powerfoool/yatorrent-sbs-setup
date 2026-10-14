@@ -216,7 +216,7 @@ def shell_wrapper(node, script, role=None):
 
 def rule_text(node, browser, reader=None):
     reader = Path(reader) if reader is not None else Path(browser).with_name("sbs-read-prompt.mjs")
-    return "# Fixed SBS Chromium launcher and staged role prompt reader only.\n" + \
+    return "# Fixed SBS Chromium launcher and technical compatibility reader only.\n" + \
         f"prefix_rule(pattern={json.dumps([str(node), str(browser)])}, decision=\"allow\")\n" + \
         f"prefix_rule(pattern={json.dumps([str(node), str(reader)])}, decision=\"allow\")\n"
 
@@ -374,7 +374,7 @@ def plan(args):
             "release": release, "startup": {"consume_codex": True, "autoStart": True, "launch_after_profile": True},
             "operations": ["resolve official latest stable YaTorrent and verify asset SHA256/native contract; keep private Node pin", "install isolated Codex and full Playwright Chromium",
                            "copy user-supplied external AIM2 into private runtime with mode 0600", "install/reuse pristine official YaTorrent without app or worker patches",
-                           "verify existing application signature; preserve Gatekeeper and original app bytes", "write separate exact Chromium and role prompt reader rules and verify execpolicy", "write strict native executor-runtime.json with custom launcher and timeout1800",
+                           "verify existing application signature; preserve Gatekeeper and original app bytes", "write separate exact Chromium and technical reader rules and verify execpolicy", "write strict native executor-runtime.json with custom launcher and timeout1800",
                            "import profile with worker stopped if necessary", "confirm encrypted profile and auth; enable Codex and worker auto-start; verify infrastructure before app launch; confirm actual worker PID/config/timeout/heartbeat after launch"],
             "limits": {"worker_concurrency": args.worker_concurrency, "worker_timeout_seconds": 1800, "scout_threads": 10, "total_agent_slots": 11},
             "profile_required": args.profile is None, "profile_bundled": False,
@@ -423,7 +423,7 @@ def apply(args):
             raise SetupError("Existing app is not a reviewed native installation; preserve it and choose an empty app path")
     if root.exists() and not marker.exists() and any(root.iterdir()):
         raise SetupError("Existing installation root is unknown; use an empty directory")
-    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs"):
+    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs", "sbs-task-instructions.mjs", "sbs-url-budget.mjs"):
         if not (ASSETS / name).is_file():
             raise SetupError("Required bundled asset missing")
     public_profile(args.profile)
@@ -518,7 +518,7 @@ def apply(args):
     except releases.ReleaseError as error:
         raise SetupError(str(error)) from None
     run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], timeout=180)
-    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs"):
+    for name in ("sbs-chromium.mjs", "sbs-read-prompt.mjs", "codex-launcher.mjs", "sbs-auth-guard.mjs", "sbs-check-contract.mjs", "sbs-task-instructions.mjs", "sbs-url-budget.mjs"):
         write_owned(root / "lib" / name, (ASSETS / name).read_bytes(), root)
     write_owned(root / "profiles/databroker.aim2", args.profile.read_bytes(), root)
     write_json(root / "lib/runtime-config.json", {"runtime": str(root / "browser-runtime"), "browsers_path": str(root / "browsers")}, root)

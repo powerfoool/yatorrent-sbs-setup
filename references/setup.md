@@ -1,4 +1,4 @@
-# Нативная настройка r6
+# Нативная настройка r7
 
 ## Пути и ownership
 
@@ -33,7 +33,7 @@ JSON отсутствует → стандартный Codex/180с; неверн
 {
   "schema_version":1,
   "contract":"sbs-codex-v1",
-  "launcher_version":"6.0.0",
+  "launcher_version":"7.0.0",
   "real_codex":{"binary":"<root>/bin/codex-real","version":"codex-cli 0.162.1"},
   "config_fingerprint":"<64 hex characters>",
   "total_agent_slots":11,
@@ -65,3 +65,5 @@ autoUpdate сохраняет выбор владельца. Перед обыч
 Latest stable разрешается через официальный GitHub API; SHA256 из release metadata обязателен. Нативный worker и проверенные ASAR модули сверяются с контрактом0.3.9. Новое несовместимое приложение не устанавливается вслепую; Codex pin/integrity отдельно не меняются. Автообновление может поменять контракт: повтори приёмку фактического runtime, не полагайся на прежний verification.json. Не переподписывать bundle, не отключать Gatekeeper/quarantine.
 
 [YaTorrent 0.3.9](https://nda.ya.ru/t/UH7A5RKD7ub4o7), [Node 24.21.0](https://nda.ya.ru/t/JYqU8xp27ub4o3), [Playwright Chromium](https://playwright.dev/docs/browsers). Контракт взят из официальных ресурсов релиза; сборка ZIP не заменяет полную verify на чистой целевой macOS и broker end-to-end.
+
+Readers в descriptor — технические entry points для нативной совместимости, не источник инструкций оценки. SBS packet проверяется launcher7 до модели. Принимающие SBS peers должны пройти instruction smoke; версия приложения0.3.9 сама по себе этого не доказывает.

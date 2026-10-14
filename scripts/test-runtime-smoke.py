@@ -184,6 +184,8 @@ class FullVerification(unittest.TestCase):
                            (root / 'bin/scout-reader', install.shell_wrapper(node, reader, 'scout')),
                            (root / 'lib/codex-launcher.mjs', (install.ASSETS / 'codex-launcher.mjs').read_text()),
                            (root / 'lib/sbs-auth-guard.mjs', (install.ASSETS / 'sbs-auth-guard.mjs').read_text()),
+                           (root / 'lib/sbs-task-instructions.mjs', (install.ASSETS / 'sbs-task-instructions.mjs').read_text()),
+                           (root / 'lib/sbs-url-budget.mjs', (install.ASSETS / 'sbs-url-budget.mjs').read_text()),
                            (reader, (install.ASSETS / reader.name).read_text()),
                            (auth / 'rules/yatorrent-sbs-chromium.rules', install.rule_text(node, browser)),
                            (app / 'Contents/Resources/worker-runtime/aim2-worker', 'pristine-native-fixture'),
@@ -209,6 +211,7 @@ class FullVerification(unittest.TestCase):
             stack.enter_context(patch.object(install, 'run', side_effect=direct_run))
             stack.enter_context(patch.object(verify, 'authentication_readback', return_value={'codex_auth': 'logged_in', 'file_auth_present': True}))
             stack.enter_context(patch.object(verify, 'worker_readback', return_value=worker_result if worker_result is not None else {'worker_ready': True}))
+            stack.enter_context(patch.object(verify.instruction_smoke, 'run_instruction_smoke', return_value={'ok': True}))
             smoke = stack.enter_context(patch.object(runtime, 'run_runtime_smoke', return_value=runtime_result))
             stack.enter_context(contextlib.redirect_stdout(stream))
             code = verify.verify(args)

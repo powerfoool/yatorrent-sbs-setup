@@ -173,7 +173,7 @@ def run_runtime_smoke(root, timeout=240):
     launcher = install.trusted_path(root / 'lib/codex-launcher.mjs', root)
     guard = install.trusted_path(root / 'lib/sbs-auth-guard.mjs', root)
     # Byte-exact installed launcher/fixed scripts; no invented alternate runtime.
-    for target in (launcher, guard, browser, reader):
+    for target in (launcher, guard, browser, reader, root / 'lib/sbs-task-instructions.mjs', root / 'lib/sbs-url-budget.mjs'):
         if target.read_bytes() != (install.ASSETS / target.name).read_bytes():
             raise install.SetupError('Installed runtime asset mismatch')
     profile = install.public_profile(root / 'profiles/databroker.aim2')
@@ -208,7 +208,7 @@ def run_runtime_smoke(root, timeout=240):
               'The browser check uses local content only. Do not access broker, sites, private files, or credentials. '
               'Do not retry failures. The final JSON completed value may be true only if all three tools succeeded.\n'
               + '\n'.join(commands.values()))
-    args = [str(node), str(launcher), 'exec', '--model', model, '--sandbox', 'workspace-write', '--ignore-user-config',
+    args = [str(node), str(launcher), '--sbs-diagnostic', 'exec', '--model', model, '--sandbox', 'workspace-write', '--ignore-user-config',
             '--ephemeral', '--skip-git-repo-check', '--color', 'never', '-c', 'approval_policy=never',
             '-c', 'sandbox_workspace_write.network_access=true', '--output-schema', str(schema_path),
             '--output-last-message', str(workspace / 'last-message.json'), '-']

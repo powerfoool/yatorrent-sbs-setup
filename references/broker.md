@@ -4,9 +4,9 @@ YaTorrent desktop — worker, а не producer: стандартный CLI не 
 
 ## Проверка API на целевой среде
 
-Перед сетевой работой прочитай актуальный /openapi.json или первичную документацию данного сервера. Снимок split v2:
-- POST /v1/tasks: `{item_id,task_type:"codex",payload:[{id,prompt,input_data,output_schema}]}`. Одна пара — один item в payload и один broker task. Не добавлять model/schema_version в PromptItem; модель выбирает worker. Сохрани неизменное тело и ID до POST. Успех: status=published с совпавшим item_id и task_id. Не приравнивать conflict/pending/HTTP200 к публикации.
-- GET /v1/results?request_id=...: ответ `{request_id,result:null|ResultLease}`. Это захват доставки, **не read-only status**. Нет task_id/task_type/publisher фильтра. Старый API имел иной ACK endpoint; не смешивать dialects.
+Перед сетевой работой прочитай актуальный /openapi.json или первичную документацию данного сервера. Снимок split v2, обновлённый14октября2026:
+- POST /v1/tasks: `{item_id,task_type:"codex",worker_version:"0.3.9",result_pool:"kron",payload:[{id,prompt,input_data,output_schema}]}`. Одна пара — один item в payload и один broker task. worker_version обязателен и означает минимальную версию исполнителя YaTorrent, а не launcher. Не добавлять model/schema_version в PromptItem; модель выбирает worker. Сохрани неизменное тело и ID до POST. Успех: status=published с совпавшим item_id и task_id. Не приравнивать conflict/pending/HTTP200 к публикации.
+- GET /v1/results?request_id=...&result_pool=kron: ответ `{request_id,result:null|ResultLease}`. Это захват доставки, **не read-only status**. Доступен result_pool (kron/aim2, default kron), но нет task_id/task_type/publisher фильтра внутри пула. Одинаковый pool используется при публикации и получении; выбор сохраняется в agreement до отправки. Pool не даёт автоматической изоляции отдельного запуска. Старый API имел иной ACK endpoint; не смешивать dialects.
 - result lease: task_id/task_type/status/result_id/result/error/delivery_id/delivery_token/delivery_status/lease_until. В status=succeeded результат ещё может содержать failed item. Ожидаемый item: `{id,status:"completed",output:...}`; провал `{id,status:"failed",error:...}`. Проверяй каждого, его ID и согласованную JSON Schema, не только внешний status.
 - POST /v1/results/ack: `{result_id,delivery_id,delivery_token}` без operation. Успех: status=acked с совпавшим result_id. Не печатай токены доставки.
 

@@ -13,7 +13,12 @@ README.md
 .gitignore
 version.json
 agents/openai.yaml
+prompts/foreman.md
+prompts/scout.md
+schemas/default-final.schema.json
 assets/codex-launcher.mjs
+assets/sbs-task-instructions.mjs
+assets/sbs-url-budget.mjs
 assets/sbs-auth-guard.mjs
 assets/sbs-chromium.mjs
 assets/sbs-read-prompt.mjs
@@ -25,8 +30,14 @@ references/browser.md
 references/broker.md
 references/profile.md
 references/prompts.md
+references/url-visit.md
 references/runtime.md
 references/setup.md
+scripts/coordinator_prompts.py
+scripts/test-task-instructions.py
+scripts/instruction_smoke.py
+scripts/test-instruction-smoke.py
+scripts/test-url-budget.py
 scripts/coordinator_setup.py
 scripts/coordinator_data.py
 scripts/test-coordinator.py

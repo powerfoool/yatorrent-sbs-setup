@@ -6,11 +6,12 @@ import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {spawn, spawnSync} from 'node:child_process';
 import crypto from 'node:crypto';
+import {parseTaskCarrier, applyTaskInstructions} from './sbs-task-instructions.mjs';
 
 const assetDir = path.dirname(fileURLToPath(import.meta.url));
 const valueFlags = new Set(['--config', '-c', '--sandbox', '-s', '--cd', '-C', '--model', '-m', '--output-schema', '--output-last-message', '-o', '--image', '-i', '--profile', '-p', '--color', '--local-provider', '--add-dir', '--thread-source', '--cyber-access-program', '--enable', '--disable', '--ask-for-approval', '-a']);
 const forbiddenFlags = new Set(['--dangerously-bypass-approvals-and-sandbox', '--yolo', '--dangerously-bypass-hook-trust', '--ignore-rules', '--full-auto', '--worktree']);
-const protectedKeys = new Set(['agents', 'project_doc_max_bytes', 'sqlite_home', 'codex_home', 'auth_home', 'cli_home', 'sandbox_mode', 'sandbox_permissions', 'permissions', 'permission_profile', 'cli_auth_credentials_store', 'execpolicy', 'rules', 'state', 'state_dir', 'session_dir', 'sessions_dir', 'rollout_dir']);
+const protectedKeys = new Set(['agents', 'developer_instructions', 'model_instructions_file', 'instructions', 'project_doc_max_bytes', 'sqlite_home', 'codex_home', 'auth_home', 'cli_home', 'sandbox_mode', 'sandbox_permissions', 'permissions', 'permission_profile', 'cli_auth_credentials_store', 'execpolicy', 'rules', 'state', 'state_dir', 'session_dir', 'sessions_dir', 'rollout_dir']);
 
 function assertOverride(value) {
   if (typeof value !== 'string' || !value.includes('=')) throw new Error('Config overrides require key=value');
@@ -98,7 +99,7 @@ export function printConfig(config) {
   const root = path.dirname(assetDir);
   const entryPoints = {browser: path.join(root, 'bin/browser'), foreman_reader: path.join(root, 'bin/foreman-reader'), scout_reader: path.join(root, 'bin/scout-reader')};
   const files = [config.node_bin, config.real_codex, path.join(assetDir, 'codex-launcher.mjs'),
-    path.join(assetDir, 'sbs-auth-guard.mjs'), path.join(assetDir, 'sbs-chromium.mjs'), path.join(assetDir, 'sbs-read-prompt.mjs'),
+    path.join(assetDir, 'sbs-auth-guard.mjs'), path.join(assetDir, 'sbs-task-instructions.mjs'), path.join(assetDir, 'sbs-url-budget.mjs'), path.join(assetDir, 'sbs-chromium.mjs'), path.join(assetDir, 'sbs-read-prompt.mjs'),
     path.join(assetDir, 'runtime-config.json'), path.join(assetDir, 'install-config.json'), path.join(root, 'bin/codex'),
     path.join(root, 'codex/node_modules/@openai/codex/bin/codex.js'),
     ...Object.values(entryPoints), path.join(config.rule_dir, 'yatorrent-sbs-chromium.rules')];
@@ -112,15 +113,31 @@ export function printConfig(config) {
   const result = spawnSync(config.real_codex, ['--version'], {env, encoding: 'utf8', timeout: 5000, maxBuffer: 16384});
   const version = result.status === 0 && /^codex-cli (0\.162\.1)\s*$/.exec(result.stdout || '');
   if (!version) throw new Error('Actual Codex version differs from the pinned CLI');
-  return {schema_version: 1, contract: 'sbs-codex-v1', launcher_version: '6.0.0',
+  return {schema_version: 1, contract: 'sbs-codex-v1', launcher_version: '7.0.0',
     real_codex: {binary: fs.realpathSync(config.real_codex), version: 'codex-cli ' + version[1]},
     config_fingerprint: crypto.createHash('sha256').update(JSON.stringify(hashes)).digest('hex'),
     total_agent_slots: 11, sandbox: 'workspace-write', network_access: true, entry_points: entryPoints};
 }
 
-export async function runLauncher(input, config, {cwd = process.cwd(), env = process.env} = {}) {
+export async function runLauncher(input, config, {cwd = process.cwd(), env = process.env, stdin = process.stdin} = {}) {
+  const diagnostic = input.includes('--sbs-diagnostic');
+  input = input.filter(x => x !== '--sbs-diagnostic');
   // First validate the invocation; invalid arguments do not allocate state.
   const preview = transformArgs(input, {sessionHome: path.join(cwd, '.sbs-cli-preview'), cwd});
+  if (preview.isExec && !diagnostic && input.at(-1) !== '-') throw new Error('SBS jobs require coordinator input_data on stdin');
+  let stdinText = null, task = null;
+  if (preview.isExec && input.at(-1) === '-') {
+    const chunks = []; let bytes = 0;
+    for await (const chunk of stdin) {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > 1024 * 1024) throw new Error('Worker stdin exceeds the launcher budget');
+      chunks.push(Buffer.from(chunk));
+    }
+    stdinText = new TextDecoder('utf-8', {fatal: true}).decode(Buffer.concat(chunks));
+    task = parseTaskCarrier(stdinText);
+    if (!task && !diagnostic) throw new Error('Coordinator instruction carrier required; worker defaults are forbidden');
+    if (task && diagnostic) throw new Error('Assessment tasks cannot use the diagnostic bypass');
+  }
   const childEnv = {...env, PATH: `${path.dirname(config.node_bin)}${path.delimiter}${env.PATH || ''}`};
   let home, authLink, guard;
   if (preview.isExec) {
@@ -148,6 +165,13 @@ export async function runLauncher(input, config, {cwd = process.cwd(), env = pro
   }
   const transformed = preview.isExec ? transformArgs(input, {sessionHome: home, cwd}) : preview;
   try {
+    if (task) {
+      childEnv.SBS_JOB_HOME = home;
+      const prepared = applyTaskInstructions(task, home, {browserCommand: config.node_bin + ' ' + path.join(assetDir, 'sbs-chromium.mjs')});
+      const index = transformed.args.findIndex(x => x === 'exec' || x === 'e');
+      transformed.args.splice(index + 1, 0, ...prepared.overrides);
+      stdinText = prepared.modelInput;
+    }
     if (authLink) {
       guard = spawn(config.node_bin, [path.join(assetDir, 'sbs-auth-guard.mjs'), authLink], {
         detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
@@ -164,7 +188,11 @@ export async function runLauncher(input, config, {cwd = process.cwd(), env = pro
       guard.channel?.unref();
     }
     return await new Promise((resolve, reject) => {
-      const child = spawn(config.real_codex, transformed.args, {cwd, env: childEnv, stdio: 'inherit'});
+      const child = spawn(config.real_codex, transformed.args, {cwd, env: childEnv, stdio: [stdinText === null ? 'inherit' : 'pipe', 'inherit', 'inherit']});
+      if (stdinText !== null) {
+        child.stdin.on('error', () => {});
+        child.stdin.end(stdinText);
+      }
       const handlers = new Map();
       for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
         const handler = () => { if (!child.killed) child.kill(signal); };

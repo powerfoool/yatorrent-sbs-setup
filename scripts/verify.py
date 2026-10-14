@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 # Same-directory import keeps verification pins identical to the installer.
 import install
 import runtime_smoke
+import instruction_smoke
 import worker_check
 import runtime_contract
 import releases
@@ -188,12 +189,19 @@ def verify(args):
     checks.update(authentication_readback(real_codex, auth_home, env, args.skip_login))
     skipped = args.skip_login or args.skip_chromium
     if not skipped and authentication_ready(checks):
-        checks["real_codex_runtime"] = runtime_smoke.run_runtime_smoke(root, args.runtime_timeout)
+        checks["real_codex_instructions"] = instruction_smoke.run_instruction_smoke(root, args.runtime_timeout)
+        if checks["real_codex_instructions"].get("ok") is True:
+            checks["real_codex_runtime"] = runtime_smoke.run_runtime_smoke(root, args.runtime_timeout)
+        else:
+            checks["real_codex_runtime"] = {"ok": False, "skipped": True, "reason": "instruction_smoke_failed"}
     else:
+        checks["real_codex_instructions"] = {"ok": False, "skipped": True, "reason": "diagnostic_skip_or_authentication_not_ready"}
         checks["real_codex_runtime"] = {"ok": False, "skipped": True, "reason": "diagnostic_skip_or_authentication_not_ready"}
     checks["diagnostic_only"] = bool(skipped)
     pre_launch = getattr(args, "pre_launch", False)
-    checks["infrastructure_ready"] = (not skipped and authentication_ready(checks) and checks["real_codex_runtime"].get("ok") is True)
+    checks["infrastructure_ready"] = (not skipped and authentication_ready(checks)
+                                      and checks["real_codex_instructions"].get("ok") is True
+                                      and checks["real_codex_runtime"].get("ok") is True)
     checks["pre_launch_only"] = pre_launch
     if checks["infrastructure_ready"] and not pre_launch:
         try:

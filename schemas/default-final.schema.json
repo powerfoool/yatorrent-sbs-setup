@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:yatorrent-sbs-setup:default-final-v1",
+  "title": "Default SBS foreman result delivered through coordinator input_data",
+  "type": "object",
+  "properties": {
+    "left_urls": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/url_item"
+      }
+    },
+    "left_serp": {
+      "$ref": "#/$defs/serp"
+    },
+    "right_urls": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/url_item"
+      }
+    },
+    "right_serp": {
+      "$ref": "#/$defs/serp"
+    },
+    "left_score": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "maximum": 5
+    },
+    "right_score": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "maximum": 5
+    },
+    "winner_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "winner": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "left",
+        "right",
+        "tie",
+        null
+      ]
+    }
+  },
+  "required": [
+    "left_urls",
+    "left_serp",
+    "right_urls",
+    "right_serp",
+    "left_score",
+    "right_score",
+    "winner_reason",
+    "winner"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "url_item": {
+      "type": "object",
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "aspect_reasons": {
+          "type": "object",
+          "properties": {
+            "relevance": {
+              "type": "string",
+              "minLength": 1
+            },
+            "quality": {
+              "type": "string",
+              "minLength": 1
+            },
+            "usefulness": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "relevance",
+            "quality",
+            "usefulness"
+          ],
+          "additionalProperties": false
+        },
+        "aspect_scores": {
+          "type": "object",
+          "properties": {
+            "relevance": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 5
+            },
+            "quality": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 5
+            },
+            "usefulness": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "relevance",
+            "quality",
+            "usefulness"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "position",
+        "url",
+        "aspect_reasons",
+        "aspect_scores"
+      ],
+      "additionalProperties": false
+    },
+    "serp": {
+      "type": "object",
+      "properties": {
+        "intent_coverage": {
+          "type": "object",
+          "properties": {
+            "conclusion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "conclusion",
+            "score"
+          ],
+          "additionalProperties": false
+        },
+        "usefulness": {
+          "type": "object",
+          "properties": {
+            "conclusion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "conclusion",
+            "score"
+          ],
+          "additionalProperties": false
+        },
+        "ordering": {
+          "type": "object",
+          "properties": {
+            "conclusion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "conclusion",
+            "score"
+          ],
+          "additionalProperties": false
+        },
+        "shortcomings": {
+          "type": "object",
+          "properties": {
+            "conclusion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "conclusion",
+            "score"
+          ],
+          "additionalProperties": false
+        },
+        "extra_blocks": {
+          "type": "object",
+          "properties": {
+            "conclusion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "conclusion",
+            "score"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "intent_coverage",
+        "usefulness",
+        "ordering",
+        "shortcomings",
+        "extra_blocks"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

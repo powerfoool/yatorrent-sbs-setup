@@ -1,4 +1,4 @@
 interface:
   display_name: "YaTorrent SBS: настройка macOS"
   short_description: "Worker и координатор SBS на macOS"
-  default_prompt: "Используй $yatorrent-sbs-setup для настройки worker или координатора YaTorrent SBS на macOS; для координатора согласуй формат и настрой gwsx work."
+  default_prompt: "Используй $yatorrent-sbs-setup для настройки worker или координатора YaTorrent SBS на macOS; для координатора согласуй формат и инструкции оценки, настрой gwsx work; передавай обе роли через input_data, не чтение промптов исполнителями."

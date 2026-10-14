@@ -11,9 +11,15 @@ from unittest.mock import patch
 import coordinator_data as data
 import coordinator_setup as setup
 import install
+import coordinator_prompts as prompts
 
 
 class CoordinatorTests(unittest.TestCase):
+    def prepare(self,pair,agreement,foreman,scout):
+        selection={'schema_version':1,'revision':1,'user_command':'owner explicitly selected these test instructions',
+                   'instructions':{'foreman':prompts.instruction(foreman),'scout':prompts.instruction(scout)}}
+        return data.prepare(pair,agreement,selection)
+
     def agreement(self):
         return {'schema_version': 1, 'approved': True, 'approval_note': 'owner chose verdict plus JSON',
                 'sheet_title': "Оценки O'Brien", 'input_columns': {'id':'A','query':'B','left':'G','right':'H'},
@@ -24,23 +30,40 @@ class CoordinatorTests(unittest.TestCase):
 
     def test_format_requires_real_agreement(self):
         a=self.agreement();a['approved']=False
-        with self.assertRaises(ValueError): data.prepare(self.pair(),a,'foreman','scout')
+        with self.assertRaises(ValueError): self.prepare(self.pair(),a,'foreman','scout')
 
     def test_one_pair_one_wire_task_reusable_identity(self):
-        a=data.prepare(self.pair(),self.agreement(),'foreman','scout')
-        b=data.prepare(self.pair(),self.agreement(),'foreman','scout')
+        a=self.prepare(self.pair(),self.agreement(),'foreman','scout')
+        b=self.prepare(self.pair(),self.agreement(),'foreman','scout')
         self.assertEqual(a,b)
-        self.assertEqual(set(a['publication']),{'item_id','task_type','payload'})
+        self.assertEqual(set(a['publication']),{'item_id','task_type','worker_version','result_pool','payload'})
         self.assertEqual(len(a['publication']['payload']),1)
         self.assertEqual(a['publication']['payload'][0]['id'],a['publication']['item_id'])
         self.assertNotIn('model',a['publication']['payload'][0])
 
+    def test_file_only_result_format_prepares_without_sheets_columns(self):
+        a={'schema_version':1,'approved':True,'approval_note':'owner chose local JSON',
+           'destination':'local_json','output_schema':{'type':'object'}}
+        publication=self.prepare(self.pair(),a,'f','s')['publication']
+        self.assertEqual(len(publication['payload']),1)
+        with self.assertRaises(ValueError):data.project({},a,1)
+        with self.assertRaises(ValueError):self.prepare(self.pair(),dict(a,destination='unknown'),'f','s')
+
+    def test_result_pool_is_bound_to_publication_and_identity(self):
+        a=self.agreement()
+        default=self.prepare(self.pair(),a,'f','s')['publication']
+        alternate=self.prepare(self.pair(),dict(a,result_pool='aim2'),'f','s')['publication']
+        self.assertEqual(default['result_pool'],'kron')
+        self.assertEqual(alternate['result_pool'],'aim2')
+        self.assertNotEqual(default['item_id'],alternate['item_id'])
+        with self.assertRaises(ValueError):self.prepare(self.pair(),dict(a,result_pool='invented'),'f','s')
+
     def test_changed_input_schema_and_rubric_get_new_ids(self):
-        a=self.agreement();base=data.prepare(self.pair(),a,'f','s')['publication']['item_id']
+        a=self.agreement();base=self.prepare(self.pair(),a,'f','s')['publication']['item_id']
         for pair,agreement,f in [(dict(self.pair(),query='changed'),a,'f'),
                                   (self.pair(),dict(a,output_schema={'type':'string'}),'f'),
                                   (self.pair(),a,'new-rubric')]:
-            self.assertNotEqual(base,data.prepare(pair,agreement,f,'s')['publication']['item_id'])
+            self.assertNotEqual(base,self.prepare(pair,agreement,f,'s')['publication']['item_id'])
 
     def test_decomposed_json_outputs_and_current_row(self):
         a=self.agreement();a['outputs']={'P':'/winner','Q':'/left/score','V':'/reason'}
@@ -63,7 +86,7 @@ class CoordinatorTests(unittest.TestCase):
     def test_unrelated_credentials_and_old_verdicts_not_forwarded(self):
         for key in ['credentials','old_verdict','editor_comment']:
             with self.assertRaises(ValueError):
-                data.prepare(dict(self.pair(),**{key:'do-not-forward'}),self.agreement(),'f','s')
+                self.prepare(dict(self.pair(),**{key:'do-not-forward'}),self.agreement(),'f','s')
 
     def test_json_pointer_arrays_and_escaping(self):
         self.assertEqual(data.pointer({'a/b':[{'~x':9}]},'/a~1b/0/~0x'),9)

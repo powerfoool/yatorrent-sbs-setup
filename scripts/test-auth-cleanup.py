@@ -22,7 +22,7 @@ class AuthCleanupTests(unittest.TestCase):
             (auth / 'auth.json').write_text('synthetic-auth-fixture')
             (auth / 'rules').mkdir()
             source = Path(__file__).resolve().parents[1] / 'assets'
-            for name in ('codex-launcher.mjs', 'sbs-auth-guard.mjs'):
+            for name in ('codex-launcher.mjs', 'sbs-auth-guard.mjs', 'sbs-task-instructions.mjs', 'sbs-url-budget.mjs'):
                 shutil.copyfile(source / name, lib / name)
             fake = root / 'fake-codex'
             fake.write_text('#!' + node + '\n' + "require('fs').writeFileSync('.fake-ready','ready'); if(process.argv.includes('finish')) process.exit(0); setInterval(()=>{},1000);\n")
@@ -30,7 +30,7 @@ class AuthCleanupTests(unittest.TestCase):
             (lib / 'install-config.json').write_text(json.dumps({'real_codex': str(fake), 'auth_home': str(auth), 'rule_dir': str(auth / 'rules'), 'node_bin': node, 'scout_threads': 10}))
             if mode == 'missing_guard':
                 (lib / 'sbs-auth-guard.mjs').unlink()
-            proc = subprocess.Popen([node, str(lib / 'codex-launcher.mjs'), 'exec', '--sandbox', 'workspace-write', *(['finish'] if mode == 'normal' else [])], cwd=root, start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            proc = subprocess.Popen([node, str(lib / 'codex-launcher.mjs'), '--sbs-diagnostic', 'exec', '--sandbox', 'workspace-write', *(['finish'] if mode == 'normal' else [])], cwd=root, start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 if mode in ('SIGKILL', 'SIGTERM'):
                     deadline = time.monotonic() + 10
