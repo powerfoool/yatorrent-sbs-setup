@@ -8,7 +8,7 @@ root `~/.local/share/yatorrent-sbs`, app `~/Applications/YaTorrent.app`, шта�
 
 ## executor-runtime.json
 
-YaTorrent0.3.9 поддерживает отдельную постоянную настройку. Приложение и нативный worker не патчатся, worker adapter отсутствует, app.asar и подпись не меняются. Стоковый app этой версии можно переиспользовать после сверки ресурсов и подписи. Известную установку r5 при поручении обновить заменяют полной проверенной официальной копией с backup; неизвестное старое/изменённое приложение сохраняют и предлагают отдельный путь.
+YaTorrent 0.3.9 поддерживает отдельную постоянную настройку. Приложение и нативный worker не патчатся, worker adapter отсутствует, app.asar и подпись не меняются. Стоковый app этой версии можно переиспользовать после сверки ресурсов и подписи. Известную установку r5 при поручении обновить заменяют полной проверенной официальной копией с backup; неизвестное старое/изменённое приложение сохраняют и предлагают отдельный путь.
 
 В штатных данных приложения файл0600:
 ```json
@@ -64,4 +64,4 @@ autoUpdate сохраняет выбор владельца. Перед обыч
 
 Latest stable разрешается через официальный GitHub API; SHA256 из release metadata обязателен. Нативный worker и проверенные ASAR модули сверяются с контрактом0.3.9. Новое несовместимое приложение не устанавливается вслепую; Codex pin/integrity отдельно не меняются. Автообновление может поменять контракт: повтори приёмку фактического runtime, не полагайся на прежний verification.json. Не переподписывать bundle, не отключать Gatekeeper/quarantine.
 
-[YaTorrent0.3.9](https://github.com/RudenkoAD/YaTorrent-releases/releases/tag/yatorrent-v0.3.9), [Node24.21.0](https://nodejs.org/dist/v24.21.0/SHASUMS256.txt), [Playwright Chromium](https://playwright.dev/docs/browsers). Контракт взят из официальных ресурсов релиза; сборка ZIP не заменяет полную verify на чистой целевой macOS и broker end-to-end.
+[YaTorrent 0.3.9](https://nda.ya.ru/t/UH7A5RKD7ub4o7), [Node 24.21.0](https://nda.ya.ru/t/JYqU8xp27ub4o3), [Playwright Chromium](https://playwright.dev/docs/browsers). Контракт взят из официальных ресурсов релиза; сборка ZIP не заменяет полную verify на чистой целевой macOS и broker end-to-end.

@@ -1,6 +1,6 @@
 # YaTorrent SBS setup — r6
 
-Публичный навык для macOS Apple Silicon: нативный YaTorrent0.3.9 с executor-runtime.json/sbs-codex-v1, Codex/Chromium, 11агентов на пару, 4параллельных задания и1800с. Приложение не патчится и не переподписывается.
+Публичный навык для macOS Apple Silicon: нативный YaTorrent 0.3.9 с executor-runtime.json и sbs-codex-v1, Codex/Chromium, 11агентов на пару, 4параллельных задания и1800с. Приложение не патчится и не переподписывается.
 
 Два режима: worker и координатор. Координатор получает пары, согласует удобный формат итогов, отправляет по1 SBS/task и сохраняет полученные оценки в Google Sheets через portable gwsx work. По умолчанию его машина также выполняет задачи. [SKILL.md](SKILL.md), [координатор](references/coordinator.md), [внешний профиль](references/profile.md).
 

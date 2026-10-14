@@ -29,7 +29,7 @@ NPM_INTEGRITY = {
     "@openai/codex": "sha512-NWZdi/kxyjv/8EUGFupziGU38YyleugZRM4JXgY5XFH7FUmaFA33NZS2Bmq0HPazf7S3jJQQWsZ/jAK9jsrV3Q==",
     "playwright": "sha512-kVzTnYFYEyQ9RGzBjNCd2+yEqWmVbxl3AHPynv3qQ6JTjv4a+kwRcnqQwIpuP3NnrnIrE/Q6wWAIAvMfIE2/Yg==",
 }
-NODE_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-darwin-arm64.tar.gz"
+NODE_URL = "https://nda.ya.ru/t/IrAg7GvG7ub4ns"  # Official pinned Node archive; HTTPS redirect and SHA256 verified
 NODE_SHA256 = "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057"
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 DEFAULT_ROOT = Path.home() / ".local/share/yatorrent-sbs"
